@@ -9,6 +9,12 @@ import serial
 import logging
 import subprocess
 
+# APN to use for the connection
+APN = "ibox.tim.it"
+
+# Max number of tries before giving up to connect
+MAX_RETRIES = 5
+
 
 class Sim:
     """
@@ -47,6 +53,7 @@ class Sim:
         self.wants_connection = Event()
         self.connected = Event()
         self.connection_t = Thread(target=self.connection_thread)
+        self.connection_t.daemon = True
         self.connection_t.start()
 
         self.imei = None
@@ -158,6 +165,48 @@ class Sim:
                 raise IOError("Could not get the IMEI.")
             return self.imei
 
+    def __disconnect_command(self):
+        """
+        Disconnects the 2G/3G modem using the sakis3g script
+        WARNING: This is blocking and may take several seconds.
+
+        This method is intended to be used in the connection_thread as
+        it may block the execution for a long time.
+
+        :return: True if disconnected successfully, False otherwise
+        """
+        completed_process = subprocess.run(['sudo', 'sakis3g', 'disconnect'],
+                                           stdout=subprocess.DEVNULL,
+                                           stderr=subprocess.DEVNULL)
+        return_value = completed_process.returncode
+        if return_value == 0:
+            self.connected.clear()
+            return True
+        else:
+            self.connected.set()
+            return False
+
+    def __connect_command(self):
+        """
+        Connects with the 2G/3G modem using the sakis 3g script.
+        WARNING: This is blocking and may take several seconds.
+
+        This method is intended to be used in the connection_thread as
+        it may block the execution for a long time.
+
+        :return: True if connected successfully, False otherwise
+        """
+        completed_process = subprocess.run(['sudo', 'sakis3g', 'connect', 'USBINTERFACE="0"',
+                                            'APN="{}"'.format(APN)], stdout=subprocess.DEVNULL,
+                                           stderr=subprocess.DEVNULL)
+        return_value = completed_process.returncode
+        if return_value == 0:
+            self.connected.set()
+            return True
+        else:
+            self.connected.clear()
+            return False
+
     def __is_connected(self):
         """
         Gets the connection state using the sakis3g script.
@@ -167,7 +216,8 @@ class Sim:
         connection_thread as it may block the execution for a long
         time. It determines the state of the connection by reading
         the exit value of the "sakis3g connected" command.
-        :return:
+
+        :return: True if connected, False otherwise
         """
         completed_process = subprocess.run(["sakis3g", "connected"], stdout=subprocess.DEVNULL,
                                            stderr=subprocess.DEVNULL)
@@ -189,17 +239,31 @@ class Sim:
             print("Connection request received")
             logging.info("Connection request received")
             while self.wants_connection.is_set():
-                # monitor connection state
-                # CONNECT
-
-                completed_process = subprocess.run(['sudo', 'sakis3g', 'connect', 'USBINTERFACE="0"',
-                                                    'APN="ibox.tim.it"'], stdout=subprocess.DEVNULL,
-                                                   stderr=subprocess.DEVNULL)
-                return_value = completed_process.returncode
-                print("Checking if connection worked. Return value was {}".format(return_value))
                 if not self.__is_connected():
-                    logging.error("Connection failed for an unknown reason.")
-                    raise ConnectionError("Connection failed for an unknown reason.")
+                    # Note that __is_connected already updates the connected Event
+                    # Try to connect MAX_RETRIES times
+                    for i in range(1, MAX_RETRIES):
+                        if self.__connect_command():
+                            print("Connected successfully")
+                            logging.info("Connected successfully")
+                            break
+                        elif i == MAX_RETRIES:
+                            # TODO implement autoreboot
+                            logging.error("Connection failed for an unknown reason.")
+                            raise ConnectionError("Connection failed for an unknown reason.")
+                time.sleep(1)
+                # Monitor connection once every second
+
+            # Try to disconnect MAX_RETRIES times
+            for i in range(1, MAX_RETRIES):
+                if self.__disconnect_command():
+                    print("Disconnected successfully")
+                    logging.info("Disconnected successfully")
+                    break
+                elif i == MAX_RETRIES:
+                    # TODO implement autoreboot
+                    logging.error("Disconnection failed for an unknown reason.")
+                    raise ConnectionError("Disconnection failed for an unknown reason.")
 
 
 

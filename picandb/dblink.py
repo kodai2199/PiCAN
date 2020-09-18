@@ -16,8 +16,6 @@ class DBLink:
         self.connection = None
         self.cursor = None
         self.settings = {}
-        self.initialize()
-        self.load_settings()
 
 
     def connect(self):

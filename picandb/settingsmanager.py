@@ -4,14 +4,27 @@ import logging
 
 class SettingsManager(DBLink):
 
-    def initialize(self):
-        # A long function that initializes the database and every setting requested
+    def __init__(self,  dbname):
+        super().__init__(dbname)
+        self.DEFAULT_IMEI = "AAAAA BBBBB CCCCC DDDDD"
+        self.initialize()
+        self.load_settings()
+
+    def is_initialized(self):
         self.connect()
         self.execute("SELECT count(name) FROM sqlite_master WHERE type='table' AND name='settings'")
         result = self.cursor.fetchone()[0]
+        # If the table exists the program will assume the database was already
+        # initialized
         if result == 1:
-            # If the table exists the program will assume it was already
-            # initialized
+            return True
+        else:
+            return False
+        self.close()
+
+    def initialize(self):
+        # A long function that initializes the database and every setting requested
+        if self.is_initialized():
             logging.info("Database already initialized.")
         else:
             # If they do not exist already, create the data and
@@ -45,7 +58,7 @@ class SettingsManager(DBLink):
             logging.info("Tables created, inserting default settings records...")
             insert_query = ("INSERT INTO settings(key, value) VALUES ("
                             "?, ?)")
-            records = [("IMEI_impianto", "AAAAA BBBBB CCCCC DDDDD")]
+            records = [("IMEI_impianto", self.DEFAULT_IMEI)]
             settings_list = ["CPx",
                              "Operator_Pump_start",
                              "impianto_RB_SERVICE",
@@ -138,3 +151,41 @@ class SettingsManager(DBLink):
         value = "{}".format(value)
         self.execute(query, (value, key))
         self.close()
+
+    def get_last_data_row(self):
+        """
+        :return: The last row from the data table as an array, or None
+                 if there are no rows in the table
+        """
+        query = "SELECT * FROM data ORDER BY timestamp DESC LIMIT 1"
+        self.connect()
+        self.execute(query)
+        count = 0
+        data_row = {}
+        for row in self.cursor:
+            count += 1
+            data_row["id"] = row[0]
+            data_row["CPx"] = row[1]
+            data_row["inlet_pressure"] = row[2]
+            data_row["inlet_temperature"] = row[3]
+            data_row["outlet_pressure"] = row[4]
+            data_row["working_hours_counter"] = row[5]
+            data_row["working_minutes_counter"] = row[6]
+            data_row["anti_drip"] = row[7]
+            data_row["time_limit"] = row[8]
+            data_row["start_code"] = row[9]
+            data_row["alarm"] = row[10]
+            data_row["bk_service"] = row[11]
+            data_row["tl_service"] = row[12]
+            data_row["rb_service"] = row[13]
+            data_row["run"] = row[14]
+            data_row["timestamp"] = row[15]
+
+        self.close()
+        if count == 0:
+            return None
+        elif count > 1:
+            logging.error("More than one row was selected")
+            raise LookupError("More than one row was selected")
+        else:
+            return data_row

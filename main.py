@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import time
 from multiprocessing import Process, Queue
 import socket as sk
 import json
@@ -14,8 +15,37 @@ SERVER_ADDRESS = "127.0.0.1"
 PORT = 37863    # Port number decided arbitrarely
 
 
+def send(socket, message):
+    data = message.encode()
+    try:
+        print("Sending {}".format(message))
+        socket.send(data)
+    except ConnectionError:
+        logging.error("Could not send data to the server")
+        return False
+    return True
+
+
 def receive(socket):
-    pass
+    data = socket.recv(1024)
+    message = data.decode("UTF-8")
+    if not data or data is None:
+        print("There was a problem receiving data from the server")
+        raise ConnectionError("There was a problem receiving data from the server")
+    return message
+
+
+def get_info():
+    """
+    Load the last batch of information
+    :return:
+    """
+    settings = SettingsManager("piCANclient.db")
+    last_row = settings.get_last_data_row()
+    if last_row is None:
+        return "NO_DATA"
+    else:
+        return last_row
 
 
 def time_increase(seconds, minutes, hours):
@@ -35,7 +65,7 @@ def time_updater():
     # may be significant, and an high-precision clock is needed
     # in order to avoid time drifts, perf_counter() will be used
     # sleep() will be considered "not precise"
-    settings = SettingsManager("piCANcontroller.db")
+    settings = SettingsManager("piCANclient.db")
     start_time = perf_counter()
     while True:
         rb_hour = settings.get_setting("impianto_RB_Counter_hour")
@@ -89,11 +119,11 @@ def can_interface_process(read_queue, write_queue):
     pass
 
 
-def socket_interface_process(read_queue, write_queue):
+def socket_interface_process(read_queue, write_queue, imei):
     """
     This function is meant to be run as a concurrent process, like the
     can_interface_process. It connects with the webserver and handles
-    the connection. It receives commands from the webserver, execute
+    the connection. It receives commands from the webserver, executes
     and replies to them.
 
     :param read_queue: queue to be shared with can_interface_process,
@@ -102,35 +132,47 @@ def socket_interface_process(read_queue, write_queue):
     :param write_queue: queue to be shared with can_interface_process,
      where this socket_interface_process will write the commands
      received from the web-server
+    :param imei: The IMEI that will be sent to the server for first
+                identification
     :return:
     """
-    with sk.socket(sk.AF_INET, sk.SOCK_STREAM) as s:
-        try:
-            # Implementing server handshake protocol
-            s.create_connection((SERVER_ADDRESS, PORT))
-            while True:
-                # Receive, execute, reply
-                data = s.recv(1024)
-                message = data.decode("UTF-8")
-
-                if message == "ID_SUPPLICANT":
-                    message = bytes("UTF-8")
-                print("Il server ha chiesto \"{}\"".format(data.decode("utf-8")))
+    last_row = None
+    # REMEMBER THE SERVER WILL SEND ONLY A COMMAND AT A TIME
+    while True:
+        # Wait until data has been fed into the database
+        while get_info() == "NO_DATA":
+            time.sleep(1)
+        with sk.socket(sk.AF_INET, sk.SOCK_STREAM) as s:
+            try:
+                # Implementing server handshake protocol
+                s.connect((SERVER_ADDRESS, PORT))
                 while True:
-                    x = input("Inserire i dati da inviare al server\n")
-                    if x == "fine":
-                        break
-                    elif x == "WEB_SERVER":
-                        s.sendall(bytes(x, "UTF-8"))
+                    # Receive, execute, reply
+                    message = receive(s)
+                    if message == "ID_SUPPLICANT":
+                        # The server is asking for identification
+                        # Reply with IMEI
+                        send(s, imei)
                     else:
-                        recipient = "AAAAABBBBCCCC DDDD"
-                        command = {"recipient": recipient, "command": x}
-                        command_json = json.dumps(command)
-                        print("Sent {}".format(command_json))
-                        s.sendall(bytes(command_json, "UTF-8"))
-        except ConnectionError or ConnectionResetError:
-                print("La connessione è stata interrotta prematuramente")
+                        logging.error("The server did not ask for identification")
+                        raise ConnectionRefusedError("The server did not ask for identification")
 
+                    while True:
+                        # Identification successful
+                        command = receive(s)
+                        if command == "GET_INFO":
+                            new_row = get_info()
+                            if last_row == new_row:
+                                # answer = "NO_UPDATE" let's save data
+                                answer = "NU"
+                            else:
+                                last_row = new_row
+                                answer = json.dumps(new_row)
+                            send(s, answer)
+
+            except ConnectionError or ConnectionResetError:
+                logging.error("The connection has been closed unexpectedly. Trying to reconnect...")
+                print("The connection has been closed unexpectedly. Trying to reconnect...")
 
 
 def main():
@@ -158,26 +200,36 @@ def main():
 
     # Prepare the database
     logging.debug("Checking database state")
-    settings = SettingsManager("piCANcontroller.db")
-    print(settings.get_setting("IMEI_impianto"))
+    settings = SettingsManager("piCANclient.db")
+    old_imei = settings.get_setting("IMEI_impianto")
 
-    # TODO Prepare the gsm modem
     logging.debug("Preparing GSM modem")
     sim = Sim()
+    new_imei = sim.get_imei()
+
+    # If the old imei is the default, then replace it.
+    # If the old imei is not the default and the new is different,
+    # the modem has been replaced, so an exception is raised
+    if old_imei == settings.DEFAULT_IMEI:
+        settings.update_setting("IMEI_impianto", new_imei)
+    elif new_imei != old_imei:
+        logging.error("Modem IMEI has changed unexpectedly. Reset the database or plug in the old modem")
+        raise IOError("Modem IMEI has changed unexpectedly. Reset the database or plug in the old modem")
+    imei = new_imei
 
     can_to_socket_queue = Queue()
     socket_to_can_queue = Queue()
     can_process = Process(target=can_interface_process, args=(socket_to_can_queue, can_to_socket_queue))
-    socket_process = Process(target=socket_interface_process, args=(can_to_socket_queue, socket_to_can_queue))
+    socket_process = Process(target=socket_interface_process, args=(can_to_socket_queue, socket_to_can_queue, imei))
     time_updater_process = Process(target=time_updater)
     time_updater_process.daemon = True
 
     # can_process.start()
-    # socket_process.start()
+    socket_process.start()
     # time_updater.start()
 
     # Nothing else needs to be done
-    # socket_process.join()
+    socket_process.join()
     # can_process.join()
     # time_updater is a daemon and will terminate with the program
 
