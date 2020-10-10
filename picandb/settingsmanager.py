@@ -4,9 +4,84 @@ import logging
 
 class SettingsManager(DBLink):
 
+    DEFAULT_IMEI = "AAAAA BBBBB CCCCC DDDDD"
+    DATA_FIELDS = ["inlet_pressure",
+                   "inlet_temperature",
+                   "outlet_pressure",
+                   "working_hours_counter",
+                   "working_minutes_counter",
+                   "anti_drip",
+                   "start_code",
+                   "alarm",
+                   "bk_service",
+                   "tl_service",
+                   "rb_service",
+                   "run",
+                   "timestamp"]
+    SETTINGS_LIST = ["CPx",
+                     "Operator_Pump_start",
+                     "impianto_RB_SERVICE",
+                     "impianto_RB_Counter_sec",
+                     "impianto_RB_Counter_min",
+                     "impianto_RB_Counter_hour",
+                     "impianto_RB_Counter_Reset",
+                     "impianto_RB_Counter_SetCounter",
+                     "impianto_RB_Counter_minuti",
+                     "impianto_RB_Counter_secondi",
+                     "impianto_RB_Counter_ore",
+                     "impianto_BK_SERVICE",
+                     "impianto_BK_Counter_sec",
+                     "impianto_BK_Counter_min",
+                     "impianto_BK_Counter_hour",
+                     "impianto_BK_Counter_Reset",
+                     "impianto_BK_Counter_SetCounter",
+                     "impianto_BK_Counter_minuti",
+                     "impianto_BK_Counter_secondi",
+                     "impianto_BK_Counter_ore",
+                     "impianto_TL_SERVICE",
+                     "impianto_TL_Counter_sec",
+                     "impianto_TL_Counter_min",
+                     "impianto_TL_Counter_hour",
+                     "impianto_TL_Counter_Reset",
+                     "impianto_TL_Counter_SetCounter",
+                     "impianto_TL_Counter_minuti",
+                     "impianto_TL_Counter_secondi",
+                     "impianto_TL_Counter_ore",
+                     "IMEI_impianto_OK",
+                     "Codice_Impianto",
+                     "Codice_Impianto_OK",
+                     "Link_Impianto_OK",
+                     "Pressione_Ingresso",
+                     "Pressione_Ingresso_Min",
+                     "Pressione_Ingresso_Max",
+                     "Pressione_Ingresso_OK",
+                     "Temperatura_Ingresso",
+                     "Temperatura_Ingresso_Min",
+                     "Temperatura_Ingresso_Max",
+                     "Temperatura_Ingresso_OK",
+                     "Pressione_Uscita",
+                     "Pressione_Uscita_Target",
+                     "Pressione_Uscita_Max",
+                     "Pressione_Uscita_OK",
+                     "Antisgocc_OK",
+                     "AntisgoccPeriodoControllo",
+                     "AntisgoccNpartenze",
+                     "AntisgoccDurataPartenze",
+                     "AlarmPump_1",
+                     "AlarmPump_2",
+                     "AlarmPump_3",
+                     "AlarmPump_4",
+                     "AlarmPump_5",
+                     "AlarmPump_6",
+                     "START_pompa_1",
+                     "START_pompa_2",
+                     "START_pompa_3",
+                     "START_pompa_4",
+                     "START_pompa_5",
+                     "START_pompa_6"]
+
     def __init__(self,  dbname):
         super().__init__(dbname)
-        self.DEFAULT_IMEI = "AAAAA BBBBB CCCCC DDDDD"
         self.initialize()
         self.load_settings()
 
@@ -37,14 +112,12 @@ class SettingsManager(DBLink):
             logging.info("Database not initialized. Creating data and settings table")
             self.execute("CREATE TABLE IF NOT EXISTS data("
                          "id integer primary key autoincrement,"
-                         "CPx varchar(255) not null default 0,"
                          "inlet_pressure integer not null default 0,"
                          "inlet_temperature integer not null default 0,"
                          "outlet_pressure integer not null default 0,"
                          "working_hours_counter integer not null default 0,"
                          "working_minutes_counter integer not null default 0,"
                          "anti_drip integer not null default 0,"
-                         "time_limit integer not null default 0,"
                          "start_code varchar(255) not null default '0',"
                          "alarm integer not null default 0,"
                          "bk_service integer not null default 0,"
@@ -58,70 +131,20 @@ class SettingsManager(DBLink):
             logging.info("Tables created, inserting default settings records...")
             insert_query = ("INSERT INTO settings(key, value) VALUES ("
                             "?, ?)")
+
+            # Prepare all settings as 0 and imei as DEFAULT_IMEI
             records = [("IMEI_impianto", self.DEFAULT_IMEI)]
-            settings_list = ["CPx",
-                             "Operator_Pump_start",
-                             "impianto_RB_SERVICE",
-                             "impianto_RB_Counter_sec",
-                             "impianto_RB_Counter_min",
-                             "impianto_RB_Counter_hour",
-                             "impianto_RB_Counter_Reset",
-                             "impianto_RB_Counter_SetCounter",
-                             "impianto_RB_Counter_minuti",
-                             "impianto_RB_Counter_secondi",
-                             "impianto_RB_Counter_ore",
-                             "impianto_BK_SERVICE",
-                             "impianto_BK_Counter_sec",
-                             "impianto_BK_Counter_min",
-                             "impianto_BK_Counter_hour",
-                             "impianto_BK_Counter_Reset",
-                             "impianto_BK_Counter_SetCounter",
-                             "impianto_BK_Counter_minuti",
-                             "impianto_BK_Counter_secondi",
-                             "impianto_BK_Counter_ore",
-                             "impianto_TL_SERVICE",
-                             "impianto_TL_Counter_sec",
-                             "impianto_TL_Counter_min",
-                             "impianto_TL_Counter_hour",
-                             "impianto_TL_Counter_Reset",
-                             "impianto_TL_Counter_SetCounter",
-                             "impianto_TL_Counter_minuti",
-                             "impianto_TL_Counter_secondi",
-                             "impianto_TL_Counter_ore",
-                             "IMEI_impianto_OK",
-                             "Codice_Impianto",
-                             "Codice_Impianto_OK",
-                             "Link_Impianto_OK",
-                             "Pressione_Ingresso",
-                             "Pressione_Ingresso_Min",
-                             "Pressione_Ingresso_Max",
-                             "Pressione_Ingresso_OK",
-                             "Temperatura_Ingresso",
-                             "Temperatura_Ingresso_Min",
-                             "Temperatura_Ingresso_Max",
-                             "Temperatura_Ingresso_OK",
-                             "Pressione_Uscita",
-                             "Pressione_Uscita_Min",
-                             "Pressione_Uscita_Max",
-                             "Pressione_Uscita_OK",
-                             "Antisgocc_OK",
-                             "AntisgoccPeriodoControllo",
-                             "AntisgoccNpartenze",
-                             "AntisgoccDurataPartenza",
-                             "AlarmPump_1",
-                             "AlarmPump_2",
-                             "AlarmPump_3",
-                             "AlarmPump_4",
-                             "AlarmPump_5",
-                             "AlarmPump_6",
-                             "START_pompa_1",
-                             "START_pompa_2",
-                             "START_pompa_3",
-                             "START_pompa_4",
-                             "START_pompa_5",
-                             "START_pompa_6"]
-            for element in settings_list:
-                t = (element, "0")
+            for element in self.SETTINGS_LIST:
+                if element == "Antisgocc_OK":
+                    t = (element, "1")
+                elif element == "Pressione_Ingresso_Max":
+                    t = (element, "20")
+                elif element == "AntisgoccNpartenze":
+                    t = (element, "10")
+                elif element == "Pressione_Uscita_Target":
+                    t = (element, "12")
+                else:
+                    t = (element, "0")
                 records.append(t)
             self.execute_many(insert_query, records)
         self.close()
@@ -152,12 +175,46 @@ class SettingsManager(DBLink):
         self.execute(query, (value, key))
         self.close()
 
+    def insert_new_data_row(self, data):
+        """
+        Insert a provided data dictionary into the database as a new row
+
+        :param data: The dictionary containing all the fields
+        :return: True if successful, False otherwise
+        """
+        query = ("INSERT INTO data(" 
+                 "inlet_pressure, "
+                 "inlet_temperature, "
+                 "outlet_pressure, "
+                 "working_hours_counter, "
+                 "working_minutes_counter, "
+                 "anti_drip, "
+                 "start_code, "
+                 "alarm, "
+                 "bk_service, "
+                 "tl_service, "
+                 "rb_service, "
+                 "run, "
+                 "timestamp) VALUES ("
+                 "?, ?, ?, ?, ?,"
+                 "?, ?, ?, ?, ?,"
+                 "?, ?, ?)")
+        data_list = []
+        for field in self.DATA_FIELDS:
+            data_list.append(data[field])
+        data_tuple = tuple(data_list)
+        self.connect()
+        self.execute(query, data_tuple)
+        self.close()
+
     def get_last_data_row(self):
         """
         :return: The last row from the data table as an array, or None
                  if there are no rows in the table
         """
-        query = "SELECT * FROM data ORDER BY timestamp DESC LIMIT 1"
+        # TODO (optional) remove the data after reading it to prevent excessive db usage
+        # TODO (optional) use queue instead of database to exchange data between can and socket process
+        query = "SELECT * FROM data ORDER BY id DESC LIMIT 1"
         self.connect()
         self.execute(query)
         count = 0
@@ -165,21 +222,19 @@ class SettingsManager(DBLink):
         for row in self.cursor:
             count += 1
             data_row["id"] = row[0]
-            data_row["CPx"] = row[1]
-            data_row["inlet_pressure"] = row[2]
-            data_row["inlet_temperature"] = row[3]
-            data_row["outlet_pressure"] = row[4]
-            data_row["working_hours_counter"] = row[5]
-            data_row["working_minutes_counter"] = row[6]
-            data_row["anti_drip"] = row[7]
-            data_row["time_limit"] = row[8]
-            data_row["start_code"] = row[9]
-            data_row["alarm"] = row[10]
-            data_row["bk_service"] = row[11]
-            data_row["tl_service"] = row[12]
-            data_row["rb_service"] = row[13]
-            data_row["run"] = row[14]
-            data_row["timestamp"] = row[15]
+            data_row["inlet_pressure"] = row[1]
+            data_row["inlet_temperature"] = row[2]
+            data_row["outlet_pressure"] = row[3]
+            data_row["working_hours_counter"] = row[4]
+            data_row["working_minutes_counter"] = row[5]
+            data_row["anti_drip"] = row[6]
+            data_row["start_code"] = row[7]
+            data_row["alarm"] = row[8]
+            data_row["bk_service"] = row[9]
+            data_row["tl_service"] = row[10]
+            data_row["rb_service"] = row[11]
+            data_row["run"] = row[12]
+            data_row["timestamp"] = row[13]
 
         self.close()
         if count == 0:

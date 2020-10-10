@@ -1,5 +1,5 @@
 # Giulio Ganzerli 28/07/2020
-# Class (to be implemented) to manage the GSM Modem connection
+# Class to manage the GSM Modem connection
 import time
 from sys import platform
 from threading import Thread
@@ -30,16 +30,22 @@ class Sim:
      - Change the connection state (connecting, disconnecting)
      - Get the Modem IMEI number
     Class variables are:
-     - self.wants_connection event that is fired when the user calls
-       connect and cleared when the user calls disconnect
+     - self.wants_connection: event that is fired when the user calls
+        connect and cleared when the user calls disconnect
+     - self.connected: event that is fired when the modem is connected
+        and cleared when it disconnects
+     - self.connection_t: the thread that takes care of all the
+        asynchronous interactions with the modem
+     - self.imei: the imei of the modem
 
 
      Further functionalities might be added in the future as needed.
     """
 
-    def __init__(self):
+    def __init__(self, autoconnect=False):
         """
-        A simple constructor that checks all the requirements are met
+        The constructor checks that all the requirements are met
+        and initializes class variables.
 
         - The system must be running a Linux operating system
         - The script must be running as root (needed for sakis3g)
@@ -47,28 +53,30 @@ class Sim:
         - wvdial must be installed
         - screen must be installed
         - sakis3g must be installed (whom files are shipped with this software)
-        It also initializes the class variables.
+
+        It also tests if the modem was already connected at the time
+        of execution, and if it was, then adjusts the variables.
+        :param autoconnect: If True the constructor will call the
+                connect method in a non-blocking fashion.
         """
 
+        self.logger = logging.getLogger(__name__)
+        self.imei = None
         self.wants_connection = Event()
         self.connected = Event()
         self.connection_t = Thread(target=self.connection_thread)
         self.connection_t.daemon = True
-        self.connection_t.start()
-
-        self.imei = None
 
         if platform != "linux":
-            logging.error("This software is designed to run on a Raspberry Pi or a linux sistem with a 3G modem"
+            self.logger.error("This software is designed to run on a Raspberry Pi or a linux system with a 3G modem"
+                              " connected. Windows is not supported.")
+            raise OSError("This software is designed to run on a Raspberry Pi or a linux system with a 3G modem "
                           " connected. Windows is not supported.")
-            raise OSError("This software is designed to run on a Raspberry Pi or a linux sistem with a 3G modem "
-                          " connected. Windows is not supported.");
         elif os.geteuid() != 0:
-            logging.error("This software is designed to run as root in order to make use of the modem.")
-            raise OSError("This software is designed to run as root in order to make use of the modem");
+            self.logger.error("This software is designed to run as root in order to make use of the modem.")
+            raise OSError("This software is designed to run as root in order to make use of the modem")
         else:
-
-            packages = ["ppp", "wvdial", "screen", "sakis3g"];
+            packages = ["ppp", "wvdial", "screen", "sakis3g"]
             for package in packages:
                 data = subprocess.Popen("whereis {}".format(package), shell=True, encoding="utf-8", stdout=subprocess.PIPE)
                 output = data.communicate()
@@ -80,15 +88,22 @@ class Sim:
                 # now output is ("package", "path/package") or ("package", "")
                 output = output[1]
                 if len(output) > 0:
-                    print("{} is installed and working.".format(package))
+                    self.logger.info("{} is installed and working.".format(package))
                 else:
                     # TODO auto install sakis3g or display instructions
-                    logging.error("Could not find package {0} in the system path. Please install {0} before"
-                                  "running this software.".format(package))
+                    self.logger.error("Could not find package {0} in the system path. Please install {0} before"
+                                      "running this software.".format(package))
                     raise FileNotFoundError("Could not find package {0} in the system path. Please install {0} before"
                                             "running this software.".format(package))
 
-                # TODO Check if already connected at start
+        # Start the thread only if all requirements are met
+        self.connection_t.start()
+
+        if self.__is_connected():
+            self.wants_connection.set()
+            self.logger.warning("The modem is already connected")
+        if autoconnect:
+            self.connect(blocking=False)
 
     def connect(self, blocking=True):
         """
@@ -145,7 +160,7 @@ class Sim:
         elif self.wants_connection.is_set():
             # Cannot provide an Imei if the modem is connected and no
             # imei was previously found
-            logging.error("Cannot get the modem's IMEI while the user"
+            self.logger.error("Cannot get the modem's IMEI while the user"
                           " wants the modem connected unless previously found")
             raise BlockingIOError("Cannot get the modem's IMEI while the user"
                                   " wants the modem connected unless previously found")
@@ -159,9 +174,10 @@ class Sim:
             modem.readline().decode()
             self.imei = modem.readline().decode()
             self.imei = self.imei.split('\n')[0]
+            self.imei = self.imei.split('\r')[0]
             if len(self.imei) < 10:
                 # TODO implement autoreboot
-                logging.error("Could not get the IMEI.")
+                self.logger.error("Could not get the IMEI.")
                 raise IOError("Could not get the IMEI.")
             return self.imei
 
@@ -233,11 +249,11 @@ class Sim:
         # while user wants connection, assures that everything works
         # can be stopped via wants_connection
         print("Thread started")
-        logging.info("Modem connection thread started")
+        self.logger.info("Modem connection thread started")
         while True:
             self.wants_connection.wait()
             print("Connection request received")
-            logging.info("Connection request received")
+            self.logger.info("Connection request received")
             while self.wants_connection.is_set():
                 if not self.__is_connected():
                     # Note that __is_connected already updates the connected Event
@@ -245,25 +261,25 @@ class Sim:
                     for i in range(1, MAX_RETRIES):
                         if self.__connect_command():
                             print("Connected successfully")
-                            logging.info("Connected successfully")
+                            self.logger.info("Connected successfully")
                             break
                         elif i == MAX_RETRIES:
                             # TODO implement autoreboot
-                            logging.error("Connection failed for an unknown reason.")
+                            self.logger.error("Connection failed for an unknown reason.")
                             raise ConnectionError("Connection failed for an unknown reason.")
                 time.sleep(1)
                 # Monitor connection once every second
 
+            # If the excecution reached this point, it means that
+            # self.wants_connection has been cleared
             # Try to disconnect MAX_RETRIES times
+            print("Thread disconnecting")
             for i in range(1, MAX_RETRIES):
                 if self.__disconnect_command():
                     print("Disconnected successfully")
-                    logging.info("Disconnected successfully")
+                    self.logger.info("Disconnected successfully")
                     break
                 elif i == MAX_RETRIES:
                     # TODO implement autoreboot
-                    logging.error("Disconnection failed for an unknown reason.")
+                    self.logger.error("Disconnection failed for an unknown reason.")
                     raise ConnectionError("Disconnection failed for an unknown reason.")
-
-
-
