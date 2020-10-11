@@ -84,7 +84,7 @@ def time_increase(seconds, minutes, hours):
     return seconds, minutes, hours
 
 
-def time_updater():
+def time_updater(reset=0):
 
     # This process will take care of updating the many time
     # variables in the database. Since database access time
@@ -92,24 +92,44 @@ def time_updater():
     # in order to avoid time drifts, perf_counter() will be used
     # sleep() will be considered "not precise"
     settings = SettingsManager("piCANclient.db")
+    tl_limit = int(settings.get_setting("impianto_TL_Counter_SetCounter"))
+    bk_limit = int(settings.get_setting("impianto_BK_Counter_SetCounter"))
+    rb_limit = int(settings.get_setting("impianto_RB_Counter_SetCounter"))
     run = int(settings.get_setting("Operator_Pump_start"))
     start_time = perf_counter()
     while True:
-        if run == 1:
-            rb_hour = settings.get_setting("impianto_RB_Counter_hour")
-            rb_min = settings.get_setting("impianto_RB_Counter_min")
-            rb_seconds = settings.get_setting("impianto_RB_Counter_sec")
-            rb_seconds, rb_min, rb_hour = time_increase(int(rb_seconds), int(rb_min), int(rb_hour))
+        if reset == 1:
+            # TODO wait until reset is 0
+            end_time = perf_counter()
+            remaining_time = 1 - (end_time - start_time)
+            sleep(remaining_time)
+            start_time = perf_counter()
 
-            bk_hour = settings.get_setting("impianto_BK_Counter_hour")
-            bk_min = settings.get_setting("impianto_BK_Counter_min")
-            bk_seconds = settings.get_setting("impianto_BK_Counter_sec")
-            bk_seconds, bk_min, bk_hour = time_increase(int(bk_seconds), int(bk_min), int(bk_hour))
+        if run == 1 and reset == 0:
 
-            tl_hour = settings.get_setting("impianto_TL_Counter_hour")
-            tl_min = settings.get_setting("impianto_TL_Counter_min")
-            tl_seconds = settings.get_setting("impianto_TL_Counter_sec")
-            tl_seconds, tl_min, tl_hour = time_increase(int(tl_seconds), int(tl_min), int(tl_hour))
+            if rb_hour < rb_limit:
+                rb_hour = settings.get_setting("impianto_RB_Counter_hour")
+                rb_min = settings.get_setting("impianto_RB_Counter_min")
+                rb_seconds = settings.get_setting("impianto_RB_Counter_sec")
+                rb_seconds, rb_min, rb_hour = time_increase(int(rb_seconds), int(rb_min), int(rb_hour))
+                if rb_hour >= rb_limit:
+                    settings.update_setting("impianto_RB_SERVICE", 1)
+
+            if bk_hour < bk_limit:
+                bk_hour = settings.get_setting("impianto_BK_Counter_hour")
+                bk_min = settings.get_setting("impianto_BK_Counter_min")
+                bk_seconds = settings.get_setting("impianto_BK_Counter_sec")
+                bk_seconds, bk_min, bk_hour = time_increase(int(bk_seconds), int(bk_min), int(bk_hour))
+                if bk_hour >= bk_limit:
+                    settings.update_setting("impianto_BK_SERVICE", 1)
+
+            if tl_hour < tl_limit:
+                tl_hour = settings.get_setting("impianto_TL_Counter_hour")
+                tl_min = settings.get_setting("impianto_TL_Counter_min")
+                tl_seconds = settings.get_setting("impianto_TL_Counter_sec")
+                tl_seconds, tl_min, tl_hour = time_increase(int(tl_seconds), int(tl_min), int(tl_hour))
+                if tl_hour >= tl_limit:
+                    settings.update_setting("impianto_TL_SERVICE", 1)
 
             settings.update_setting("impianto_RB_Counter_hour", str(rb_hour))
             settings.update_setting("impianto_RB_Counter_min", str(rb_min))
@@ -152,6 +172,9 @@ def can_interface_process(read_queue, write_queue):
     min_inlet_pressure = int(settings.get_setting("Pressione_Ingresso_Min"))
     max_inlet_pressure = int(settings.get_setting("Pressione_Ingresso_Max"))
     anti_drip_time_limit = int(settings.get_setting("AntisgoccPeriodoControllo"))
+    tl_service = int(settings.get_setting("impianto_TL_SERVICE"))
+    bk_service = int(settings.get_setting("impianto_BK_SERVICE"))
+    rb_service = int(settings.get_setting("impianto_RB_SERVICE"))
     if settings.get_setting("Antisgocc_OK") == 0:
         # If it's not ok then it's activated...
         anti_drip = True
@@ -165,7 +188,7 @@ def can_interface_process(read_queue, write_queue):
         try:
             # Check for commands. Remember the .get() is blocking so the
             # process will wait until a command needs to be executed.
-            command = read_queue.get(timeout=1)
+            command = read_queue.get(timeout=0.5)
             result = "INVALID"
             logging.info("Executing {}".format(command))
             # TODO: Implement actual command sending
@@ -205,28 +228,39 @@ def can_interface_process(read_queue, write_queue):
                 settings.update_setting("Antisgocc_OK", 0)
                 anti_drip = True
 
+            # 3. Update all relevant variables
+            tl_service = int(settings.get_setting("impianto_TL_SERVICE"))
+            bk_service = int(settings.get_setting("impianto_BK_SERVICE"))
+            rb_service = int(settings.get_setting("impianto_RB_SERVICE"))
+
             # 3. Read pressure values and start or stop the pumps as necessary
             outlet_pressure = can_network.read_outlet_pressure()
             inlet_pressure = can_network.read_inlet_pressure()
             if outlet_pressure < inlet_pressure:
-                logger.warning(f"Inlet pressure is {inlet_pressure}bar, which is higher than  the outlet pressure "
+                logger.warning(f"Inlet pressure is {inlet_pressure}bar, which is higher than the outlet pressure "
                                f" {outlet_pressure}bar. This is impossible. Check pressure sensor status.")
             if min_inlet_pressure < inlet_pressure < max_inlet_pressure:
                 settings.update_setting("Pressione_Ingresso_OK", 1)
-                if outlet_pressure < target_pressure and not anti_drip and operator_pump_start == 1:
-                    # TODO Use inverter's PID
-                    # could also smartly set speed...
-                    can_network.run_all_nodes()
-                    last_started = datetime.now()
+                if tl_service == 0 and bk_service == 0 and rb_service == 0:
+                    if outlet_pressure < target_pressure and not anti_drip and operator_pump_start == 1:
+                        # TODO Use inverter's PID
+                        # could also smartly set speed...
+                        can_network.run_all_nodes()
+                        last_started = datetime.now()
+                    else:
+                        can_network.stop_all_nodes()
                 else:
                     can_network.stop_all_nodes()
+                    logger.warning(f"System stopped for a time limit:"
+                                   f" TL:{tl_service}, BK:{bk_service}, RB:{rb_service}")
             else:
+                settings.update_setting("Pressione_Ingresso_OK", 0)
                 logger.warning(f"Inlet pressure of {inlet_pressure}bar, is outside limits. Pumps not started.")
             settings.update_setting("Pressione_Uscita", outlet_pressure)
             settings.update_setting("Pressione_Ingresso", inlet_pressure)
 
 
-def socket_interface_process(read_queue, write_queue, imei, sim):
+def socket_interface_process(read_queue, write_queue, imei, sim, time_updater_reset):
     """
     This function is meant to be run as a concurrent process, like the
     can_interface_process. It connects with the webserver and handles
@@ -319,7 +353,30 @@ def socket_interface_process(read_queue, write_queue, imei, sim):
                                 send(s, "OK")
                             else:
                                 print("ISSUE!")
-
+                        elif command == "RESET_TL":
+                            time_updater_reset = 1
+                            settings.update_setting("impianto_TL_Counter_hour", 0)
+                            settings.update_setting("impianto_TL_Counter_min", 0)
+                            settings.update_setting("impianto_TL_Counter_sec", 0)
+                            settings.update_setting("impianto_TL_SERVICE", 0)
+                            time_updater_reset = 0
+                            send(s, "OK")
+                        elif command == "RESET_BK":
+                            time_updater_reset = 1
+                            settings.update_setting("impianto_BK_Counter_hour", 0)
+                            settings.update_setting("impianto_BK_Counter_min", 0)
+                            settings.update_setting("impianto_BK_Counter_sec", 0)
+                            settings.update_setting("impianto_BK_SERVICE", 0)
+                            time_updater_reset = 0
+                            send(s, "OK")
+                        elif command == "RESET_RB":
+                            time_updater_reset = 1
+                            settings.update_setting("impianto_RB_Counter_hour", 0)
+                            settings.update_setting("impianto_RB_Counter_min", 0)
+                            settings.update_setting("impianto_RB_Counter_sec", 0)
+                            settings.update_setting("impianto_RB_SERVICE", 0)
+                            time_updater_reset = 0
+                            send(s, "OK")
             except ConnectionError or ConnectionResetError:
                 # If there was an issue connecting to the server, try to fix the issue until
                 # it starts working again (cannot give up!)
@@ -377,13 +434,16 @@ def main():
     settings.update_setting("IMEI_impianto_OK", 1)
     imei = new_imei
 
+
+    # reset variable to control time_updater_process
+    reset = 0
     can_to_socket_queue = Queue()
     socket_to_can_queue = Queue()
     can_process = Process(target=can_interface_process,
                           args=(socket_to_can_queue, can_to_socket_queue))
     socket_process = Process(target=socket_interface_process,
-                             args=(can_to_socket_queue, socket_to_can_queue, imei, sim))
-    time_updater_process = Process(target=time_updater)
+                             args=(can_to_socket_queue, socket_to_can_queue, imei, sim, reset))
+    time_updater_process = Process(target=time_updater, args=(reset,))
     time_updater_process.daemon = True
 
     can_process.start()

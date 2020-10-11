@@ -16,6 +16,8 @@ class CanNetwork:
     WARNING: YOU SHOULD HAVE ONLY A CanNetwork OBJECT AT ANY GIVEN
              TIME IN YOUR SOFTWARE.
 
+    This class manages the CANbus interface, the CAN network connection,
+    the initialization of the nodes and 
 
     """
 
