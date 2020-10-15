@@ -1,7 +1,6 @@
 # Giulio Ganzerli 08/10/2020
 # Class to manage the CanOPEN connection to the nodes.
 import time
-
 import canopen
 from canopen.profiles.p402 import BaseNode402
 from sys import platform
@@ -34,6 +33,7 @@ class CanNetwork:
         self.state = "UNDEFINED"
         self.nodes_list = []
         # Check dependencies
+        # TODO install canopen from github pip install https://github.com/christiansandberg/canopen/archive/master.zip
         # Check if can interface is up and running (or turn it on forcibly)
         # Scan network
         # Identify master node.
@@ -127,9 +127,9 @@ class CanNetwork:
             self.network.scanner.search()
             # Give time to complete the search process
             time.sleep(0.3)
+            self.logger.debug(f"CAN Network scan result: nodes number {self.network.scanner.nodes}")
             for node_id in self.network.scanner.nodes:
-                self.logger.info(f"Node number {node_id} identified")
-                new_node = BaseNode402(node_id, 'TEATV31_01307E.eds')
+                new_node = BaseNode402(node_id, 'LOVATO_VLB3.eds')
                 self.network.add_node(new_node)
                 new_node.setup_402_state_machine()
                 self.nodes_list.append(new_node)
@@ -145,18 +145,31 @@ class CanNetwork:
             raise can.CanError("Connection was successful but no active node is completing the bus,"
                                " meaning that communication is impossible. Please setup a node before"
                                " trying to connect again")
-        self.set_network_state("READY TO SWITCH ON")
+        # Wait before setting all to ready
+        time.sleep(1)
+        self.set_network_state("SWITCHED ON")
 
     def set_network_state(self, state):
+        # Ignored fault
         if self.state != state:
             for node in self.nodes_list:
-                node.state = state
+                if node.state != "FAULT":
+                    node.state = state
             self.state = state
 
+    def get_faulty_nodes(self):
+        faulty = []
+        for node in self.nodes_list:
+            if node.state == "FAULT":
+                faulty.append(node.id)
+        return faulty
+
     def run_all_nodes(self):
+        print("RUNNIIIIIIIIIIING")
         self.set_network_state("OPERATION ENABLED")
 
     def stop_all_nodes(self):
+        print("STOPPED INDEED")
         self.set_network_state("SWITCHED ON")
 
     def set_speed_all_nodes(self, rpm):
@@ -164,15 +177,21 @@ class CanNetwork:
             node.sdo[0x6046][1].phys = rpm
         self.speed = rpm
 
-    def read_inlet_pressure(self):
-        # TODO to be implemented once we get to test a pressure sensor
-        # Return a temporary value
-        return 5
-
     def read_outlet_pressure(self):
-        # TODO to be implemented once we get to test a pressure sensor
-        # Return a temporary value
-        return 10
+        return self.nodes_list[0].sdo[0x2DA4][1].raw
 
+    def read_inlet_temperature(self):
+        if self.nodes_list[0].sdo[0x60FD].bits[16] == 1:
+            return True
+        else:
+            return False
 
+    @staticmethod
+    def read_inlet_pressure():
+        # TODO read from an actual sensor if available.
+        return 100
 
+    # def read_inlet_pressure(self):
+    # to be implemented if we get to test a pressure sensor
+    # Return a temporary value
+    #   return 5

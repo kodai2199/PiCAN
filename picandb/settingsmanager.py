@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from picandb.dblink import DBLink
 import logging
 
@@ -8,15 +10,17 @@ class SettingsManager(DBLink):
     DATA_FIELDS = ["inlet_pressure",
                    "inlet_temperature",
                    "outlet_pressure",
+                   "outlet_pressure_target",
                    "working_hours_counter",
                    "working_minutes_counter",
                    "anti_drip",
                    "start_code",
-                   "alarm",
+                   "alarms",
                    "bk_service",
                    "tl_service",
                    "rb_service",
                    "run",
+                   "running",
                    "timestamp"]
     SETTINGS_LIST = ["CPx",
                      "Operator_Pump_start",
@@ -115,15 +119,17 @@ class SettingsManager(DBLink):
                          "inlet_pressure integer not null default 0,"
                          "inlet_temperature integer not null default 0,"
                          "outlet_pressure integer not null default 0,"
+                         "outlet_pressure_target integer not null default 0,"
                          "working_hours_counter integer not null default 0,"
                          "working_minutes_counter integer not null default 0,"
                          "anti_drip integer not null default 0,"
                          "start_code varchar(255) not null default '0',"
-                         "alarm integer not null default 0,"
+                         "alarms varchar(255) not null default '',"
                          "bk_service integer not null default 0,"
                          "tl_service integer not null default 0,"
                          "rb_service integer not null default 0,"
                          "run integer not null default 0,"
+                         "running integer not null default 0,"
                          "timestamp text not null default '')")
             self.execute("CREATE TABLE IF NOT EXISTS settings("
                          "key varchar(255) primary key,"
@@ -179,27 +185,35 @@ class SettingsManager(DBLink):
         """
         Insert a provided data dictionary into the database as a new row
 
-        :param data: The dictionary containing all the fields
+        :param data: The dictionary containing all the fields. If
+                    timestamp is not present in the given dictionary,
+                    it is dinamically added.
         :return: True if successful, False otherwise
         """
         query = ("INSERT INTO data(" 
                  "inlet_pressure, "
                  "inlet_temperature, "
                  "outlet_pressure, "
+                 "outlet_pressure_target, "
                  "working_hours_counter, "
                  "working_minutes_counter, "
                  "anti_drip, "
                  "start_code, "
-                 "alarm, "
+                 "alarms, "
                  "bk_service, "
                  "tl_service, "
                  "rb_service, "
                  "run, "
+                 "running, "
                  "timestamp) VALUES ("
                  "?, ?, ?, ?, ?,"
                  "?, ?, ?, ?, ?,"
-                 "?, ?, ?)")
+                 "?, ?, ?, ?, ?)")
         data_list = []
+        if "start_code" not in data:
+            data["start_code"] = '0x000'
+        if "timestamp" not in data:
+            data["timestamp"] = datetime.now()
         for field in self.DATA_FIELDS:
             data_list.append(data[field])
         data_tuple = tuple(data_list)
@@ -225,16 +239,18 @@ class SettingsManager(DBLink):
             data_row["inlet_pressure"] = row[1]
             data_row["inlet_temperature"] = row[2]
             data_row["outlet_pressure"] = row[3]
-            data_row["working_hours_counter"] = row[4]
-            data_row["working_minutes_counter"] = row[5]
-            data_row["anti_drip"] = row[6]
-            data_row["start_code"] = row[7]
-            data_row["alarm"] = row[8]
-            data_row["bk_service"] = row[9]
-            data_row["tl_service"] = row[10]
-            data_row["rb_service"] = row[11]
-            data_row["run"] = row[12]
-            data_row["timestamp"] = row[13]
+            data_row["outlet_pressure_target"] = row[4]
+            data_row["working_hours_counter"] = row[5]
+            data_row["working_minutes_counter"] = row[6]
+            data_row["anti_drip"] = row[7]
+            data_row["start_code"] = row[8]
+            data_row["alarms"] = row[9]
+            data_row["bk_service"] = row[10]
+            data_row["tl_service"] = row[11]
+            data_row["rb_service"] = row[12]
+            data_row["run"] = row[13]
+            data_row["running"] = row[14]
+            data_row["timestamp"] = row[15]
 
         self.close()
         if count == 0:
