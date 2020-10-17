@@ -28,7 +28,7 @@ class CanNetwork:
         self.setup = False
         self.enabled = False
         self.connected = False
-        self.network = canopen.Network()
+        self.network = None
         self.speed = 0
         self.state = "UNDEFINED"
         self.nodes_list = []
@@ -50,7 +50,9 @@ class CanNetwork:
             raise IOError("No CANbus interface found. Please connect a CANbus interface and restart the software.")
         else:
             self.disable_can_interface()
+            time.sleep(0.2)
             self.setup_can_interface()
+            time.sleep(0.2)
             if self.setup:
                 self.logger.info("CANbus interface setup.")
             self.enable_can_interface()
@@ -86,7 +88,7 @@ class CanNetwork:
     def enable_can_interface(self):
         if self.enabled:
             return True
-        completed_process = subprocess.run(['sudo', 'ifconfig', f"{self.interface_name}", "up"],
+        completed_process = subprocess.run(["sudo", 'ifconfig', f"{self.interface_name}", "up"],
                                            stdout=subprocess.DEVNULL,
                                            stderr=subprocess.DEVNULL)
         return_value = completed_process.returncode
@@ -113,6 +115,7 @@ class CanNetwork:
 
     def connect(self):
         try:
+            self.network = canopen.Network()
             self.network.connect(bitrate=self.bitrate, channel=self.interface_name, bustype=self.bustype)
             self.connected = True
         except OSError:
@@ -124,10 +127,12 @@ class CanNetwork:
 
     def initialize_nodes(self):
         try:
+            # For some reason, reconnect is needed...
+            self.connect()
             self.network.scanner.search()
             # Give time to complete the search process
-            time.sleep(0.3)
-            self.logger.debug(f"CAN Network scan result: nodes number {self.network.scanner.nodes}")
+            time.sleep(0.5)
+            self.logger.info(f"CAN Network scan result: nodes number {self.network.scanner.nodes}")
             for node_id in self.network.scanner.nodes:
                 new_node = BaseNode402(node_id, 'LOVATO_VLB3.eds')
                 self.network.add_node(new_node)
@@ -165,11 +170,9 @@ class CanNetwork:
         return faulty
 
     def run_all_nodes(self):
-        print("RUNNIIIIIIIIIIING")
         self.set_network_state("OPERATION ENABLED")
 
     def stop_all_nodes(self):
-        print("STOPPED INDEED")
         self.set_network_state("SWITCHED ON")
 
     def set_speed_all_nodes(self, rpm):
@@ -181,15 +184,12 @@ class CanNetwork:
         return self.nodes_list[0].sdo[0x2DA4][1].raw
 
     def read_inlet_temperature(self):
-        if self.nodes_list[0].sdo[0x60FD].bits[16] == 1:
-            return True
-        else:
-            return False
+        return self.nodes_list[0].sdo[0x60FD].bits[16]
 
     @staticmethod
     def read_inlet_pressure():
         # TODO read from an actual sensor if available.
-        return 100
+        return 10
 
     # def read_inlet_pressure(self):
     # to be implemented if we get to test a pressure sensor

@@ -15,7 +15,6 @@ class DBLink:
         self.dbname = dbname
         self.connection = None
         self.cursor = None
-        self.settings = {}
 
 
     def connect(self):

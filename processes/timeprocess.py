@@ -43,41 +43,41 @@ def time_updater(reset=0):
 
         if run == 1 and reset == 0:
 
+            rb_hour = int(settings.get_setting("impianto_RB_Counter_hour"))
+            rb_min = int(settings.get_setting("impianto_RB_Counter_min"))
+            rb_seconds = int(settings.get_setting("impianto_RB_Counter_sec"))
             if rb_hour < rb_limit:
-                rb_hour = settings.get_setting("impianto_RB_Counter_hour")
-                rb_min = settings.get_setting("impianto_RB_Counter_min")
-                rb_seconds = settings.get_setting("impianto_RB_Counter_sec")
-                rb_seconds, rb_min, rb_hour = time_increase(int(rb_seconds), int(rb_min), int(rb_hour))
+                rb_seconds, rb_min, rb_hour = time_increase(rb_seconds, rb_min, rb_hour)
                 if rb_hour >= rb_limit:
                     settings.update_setting("impianto_RB_SERVICE", 1)
 
+            bk_hour = int(settings.get_setting("impianto_BK_Counter_hour"))
+            bk_min = int(settings.get_setting("impianto_BK_Counter_min"))
+            bk_seconds = int(settings.get_setting("impianto_BK_Counter_sec"))
             if bk_hour < bk_limit:
-                bk_hour = settings.get_setting("impianto_BK_Counter_hour")
-                bk_min = settings.get_setting("impianto_BK_Counter_min")
-                bk_seconds = settings.get_setting("impianto_BK_Counter_sec")
-                bk_seconds, bk_min, bk_hour = time_increase(int(bk_seconds), int(bk_min), int(bk_hour))
+                bk_seconds, bk_min, bk_hour = time_increase(bk_seconds, bk_min, bk_hour)
                 if bk_hour >= bk_limit:
                     settings.update_setting("impianto_BK_SERVICE", 1)
 
+            tl_hour = int(settings.get_setting("impianto_TL_Counter_hour"))
+            tl_min = int(settings.get_setting("impianto_TL_Counter_min"))
+            tl_seconds = int(settings.get_setting("impianto_TL_Counter_sec"))
             if tl_hour < tl_limit:
-                tl_hour = settings.get_setting("impianto_TL_Counter_hour")
-                tl_min = settings.get_setting("impianto_TL_Counter_min")
-                tl_seconds = settings.get_setting("impianto_TL_Counter_sec")
-                tl_seconds, tl_min, tl_hour = time_increase(int(tl_seconds), int(tl_min), int(tl_hour))
+                tl_seconds, tl_min, tl_hour = time_increase(tl_seconds, tl_min, tl_hour)
                 if tl_hour >= tl_limit:
                     settings.update_setting("impianto_TL_SERVICE", 1)
 
-            settings.update_setting("impianto_RB_Counter_hour", str(rb_hour))
-            settings.update_setting("impianto_RB_Counter_min", str(rb_min))
-            settings.update_setting("impianto_RB_Counter_sec", str(rb_seconds))
+            settings.update_setting("impianto_RB_Counter_hour", rb_hour)
+            settings.update_setting("impianto_RB_Counter_min", rb_min)
+            settings.update_setting("impianto_RB_Counter_sec", rb_seconds)
 
-            settings.update_setting("impianto_BK_Counter_hour", str(bk_hour))
-            settings.update_setting("impianto_BK_Counter_min", str(bk_min))
-            settings.update_setting("impianto_BK_Counter_sec", str(bk_seconds))
+            settings.update_setting("impianto_BK_Counter_hour", bk_hour)
+            settings.update_setting("impianto_BK_Counter_min", bk_min)
+            settings.update_setting("impianto_BK_Counter_sec", bk_seconds)
 
-            settings.update_setting("impianto_TL_Counter_hour", str(tl_hour))
-            settings.update_setting("impianto_TL_Counter_min", str(tl_min))
-            settings.update_setting("impianto_TL_Counter_sec", str(tl_seconds))
+            settings.update_setting("impianto_TL_Counter_hour", tl_hour)
+            settings.update_setting("impianto_TL_Counter_min", tl_min)
+            settings.update_setting("impianto_TL_Counter_sec", tl_seconds)
 
         run = int(settings.get_setting("Operator_Pump_start"))
 

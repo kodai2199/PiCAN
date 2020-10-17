@@ -78,7 +78,8 @@ class Sim:
         else:
             packages = ["ppp", "wvdial", "screen", "sakis3g"]
             for package in packages:
-                data = subprocess.Popen("whereis {}".format(package), shell=True, encoding="utf-8", stdout=subprocess.PIPE)
+                data = subprocess.Popen("whereis {}".format(package), shell=True,
+                                        encoding="utf-8", stdout=subprocess.PIPE)
                 output = data.communicate()
                 # Output is in form "package: path/package \n" or
                 # "package: \n" if not found.

@@ -1,5 +1,4 @@
-from datetime import datetime
-
+import time
 from picandb.dblink import DBLink
 import logging
 
@@ -86,8 +85,8 @@ class SettingsManager(DBLink):
 
     def __init__(self,  dbname):
         super().__init__(dbname)
+        self.settings = {}
         self.initialize()
-        self.load_settings()
 
     def is_initialized(self):
         self.connect()
@@ -95,11 +94,11 @@ class SettingsManager(DBLink):
         result = self.cursor.fetchone()[0]
         # If the table exists the program will assume the database was already
         # initialized
+        self.close()
         if result == 1:
             return True
         else:
             return False
-        self.close()
 
     def initialize(self):
         # A long function that initializes the database and every setting requested
@@ -114,6 +113,7 @@ class SettingsManager(DBLink):
             # can_interface_process fetches data from the CANbus.
             # Only data that has to be sent via web will be recorded this way
             logging.info("Database not initialized. Creating data and settings table")
+            self.connect()
             self.execute("CREATE TABLE IF NOT EXISTS data("
                          "id integer primary key autoincrement,"
                          "inlet_pressure integer not null default 0,"
@@ -141,19 +141,10 @@ class SettingsManager(DBLink):
             # Prepare all settings as 0 and imei as DEFAULT_IMEI
             records = [("IMEI_impianto", self.DEFAULT_IMEI)]
             for element in self.SETTINGS_LIST:
-                if element == "Antisgocc_OK":
-                    t = (element, "1")
-                elif element == "Pressione_Ingresso_Max":
-                    t = (element, "20")
-                elif element == "AntisgoccNpartenze":
-                    t = (element, "10")
-                elif element == "Pressione_Uscita_Target":
-                    t = (element, "12")
-                else:
-                    t = (element, "0")
+                t = (element, "0")
                 records.append(t)
             self.execute_many(insert_query, records)
-        self.close()
+            self.close()
         logging.info("Initialization completed.")
 
     def load_settings(self):
@@ -187,9 +178,11 @@ class SettingsManager(DBLink):
 
         :param data: The dictionary containing all the fields. If
                     timestamp is not present in the given dictionary,
-                    it is dinamically added.
+                    it is dinamically added to a copied dictionary.
         :return: True if successful, False otherwise
         """
+        data_copy = dict(data)
+
         query = ("INSERT INTO data(" 
                  "inlet_pressure, "
                  "inlet_temperature, "
@@ -210,12 +203,12 @@ class SettingsManager(DBLink):
                  "?, ?, ?, ?, ?,"
                  "?, ?, ?, ?, ?)")
         data_list = []
-        if "start_code" not in data:
-            data["start_code"] = '0x000'
-        if "timestamp" not in data:
-            data["timestamp"] = datetime.now()
+        if "start_code" not in data_copy:
+            data_copy["start_code"] = '0x000'
+        if "timestamp" not in data_copy:
+            data_copy["timestamp"] = str(time.time())
         for field in self.DATA_FIELDS:
-            data_list.append(data[field])
+            data_list.append(data_copy[field])
         data_tuple = tuple(data_list)
         self.connect()
         self.execute(query, data_tuple)

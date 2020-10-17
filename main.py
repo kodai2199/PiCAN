@@ -4,9 +4,55 @@ import logging
 from datetime import datetime
 from pathlib import Path
 from processes.canprocess import CanProcess
-from processes.socketprocess import socket_interface_process
+from processes.socketprocess import SocketProcess
 from sim import Sim
+import os
+import configparser
 from picandb.settingsmanager import SettingsManager
+
+
+def create_config(cfg: configparser.ConfigParser):
+    # Create config file programmatically
+    # TODO load/create can bus, sim and other missing settings like port and address, apn, ...
+    cfg['Dati impianto'] = {'Codice_Impianto': 'default'}
+    cfg['Limiti temporali'] = \
+        {'# Default impianto_TL_Counter_SetCounter': '4. Limite di ore giornaliere prima del blocco dei contatori TL',
+         'impianto_TL_Counter_SetCounter': '4',
+         '# Default impianto_RB_Counter_SetCounter': '720. Limite di ore totali prima del blocco dei contatori RB',
+         'impianto_RB_Counter_SetCounter': '720',
+         '# Default impianto_BK_Counter_SetCounter': '1080. Limite di ore totali prima del blocco dei contatori BK',
+         'impianto_BK_Counter_SetCounter': '1080'}
+
+    cfg['Soglie pressione'] = {
+        '# Default Pressione_Uscita_Max': '110. Bar massimi al di sopra dei quali le pompe '
+                                          'non partiranno in nessun caso',
+        'Pressione_Uscita_Max': '110',
+        '# Default Pressione_Ingresso_Min': '0. Bar minimi al di sotto dei quali le pompe non partiranno.',
+        'Pressione_Ingresso_Min': '0',
+        '# Default Pressione_Ingresso_Max': '100. Bar massimi al di sopra dei quali le pompe non partiranno',
+        'Pressione_Ingresso_Max': '100',
+        }
+
+    cfg['Antisgocciolamento'] = {
+        '# Default AntisgoccPeriodoControllo': '3600. Secondi prima che il contatore del numero di partenze si resetti',
+        'AntisgoccPeriodoControllo': '3600',
+        '# Default AntisgoccNpartenze': "20. Numero di partenze entro AntisgoccPeriodoControllo "
+                                        "per cui si attiva l'antisgocciolamento",
+        'AntisgoccNpartenze': '20',
+        '# Default AntisgoccDurataPartenze': '30. Numero minimo di secondi in cui una pompa '
+                                             'deve restare accesa affinchè una partenza sia conteggiata',
+        'AntisgoccDurataPartenze': '30'}
+    cfg['CANBus'] = {
+        '# Default bitrate': '500000. Bitrate in kbps della rete CANBus',
+        'bitrate': '500000',
+        '# Default interface_name:': 'can0. Default name of the CANBus interface',
+        'interface_name': 'can0',
+        '# Default bustype': 'socketcan. Socket type for the connection.'
+                             ' On linux-based systems, it should be socketcan',
+        'bustype': 'socketcan'
+    }
+    with open('settings.cfg', 'w', encoding='utf-8') as configfile:
+        cfg.write(configfile)
 
 
 def main():
@@ -28,16 +74,45 @@ def main():
     filename = now.strftime("%Y-%m-%d_%H-%M-%S")
     filename += "_piCANcontroller.log"
     filename = directory / filename
-    logging.basicConfig(level=logging.DEBUG, filename=filename, format="[%(asctime)s][%(levelname)s] %(message)s")
+    logging.basicConfig(level=logging.INFO, filename=filename, format="[%(asctime)s][%(levelname)s] %(message)s")
     logger = logging.getLogger(__name__)
-    logger.debug("Logger ready")
+    logger.info("Logger ready")
 
     # Prepare the database
-    logger.debug("Checking database state")
+    logger.info("Checking database state")
     settings = SettingsManager("piCANclient.db")
     old_imei = settings.get_setting("IMEI_impianto")
 
-    logger.debug("Preparing GSM modem")
+    # Create/Load the settings
+    c = configparser.ConfigParser()
+    if not os.path.exists('settings.cfg'):
+        create_config(c)
+    c.read('settings.cfg')
+    installation_code = c['Dati impianto']['Codice_Impianto']
+    tl_limit = c['Limiti temporali']['impianto_TL_Counter_SetCounter']
+    rb_limit = c['Limiti temporali']['impianto_RB_Counter_SetCounter']
+    bk_limit = c['Limiti temporali']['impianto_BK_Counter_SetCounter']
+    max_outlet_pressure = c['Soglie pressione']['Pressione_Uscita_Max']
+    min_inlet_pressure = c['Soglie pressione']['Pressione_Ingresso_Min']
+    max_inlet_pressure = c['Soglie pressione']['Pressione_Ingresso_Max']
+    anti_drip_time_limit = c['Antisgocciolamento']['AntisgoccPeriodoControllo']
+    anti_drip_start_count_limit = c['Antisgocciolamento']['AntisgoccNpartenze']
+    anti_drip_min_period = c['Antisgocciolamento']['AntisgoccDurataPartenze']
+    can_bitrate = int(c['CANBus']['bitrate'])
+    can_interface_name = c['CANBus']['interface_name']
+    can_bustype = c['CANBus']['bustype']
+    settings.update_setting('Codice_Impianto', installation_code)
+    settings.update_setting('impianto_TL_Counter_SetCounter', tl_limit)
+    settings.update_setting('impianto_RB_Counter_SetCounter', rb_limit)
+    settings.update_setting('impianto_BK_Counter_SetCounter', bk_limit)
+    settings.update_setting('Pressione_Uscita_Max', max_outlet_pressure)
+    settings.update_setting('Pressione_Ingresso_Min', min_inlet_pressure)
+    settings.update_setting('Pressione_Ingresso_Max', max_inlet_pressure)
+    settings.update_setting('AntisgoccPeriodoControllo', anti_drip_time_limit)
+    settings.update_setting('AntisgoccNpartenze', anti_drip_start_count_limit)
+    settings.update_setting('AntisgoccDurataPartenze', anti_drip_min_period)
+
+    logger.info("Preparing GSM modem")
     sim = Sim()
     if sim.connected.is_set():
         sim.disconnect()
@@ -58,9 +133,10 @@ def main():
 
     can_to_socket_queue = Queue()
     socket_to_can_queue = Queue()
-    can_process = CanProcess(socket_to_can_queue, can_to_socket_queue)
-    socket_process = Process(target=socket_interface_process,
-                             args=(can_to_socket_queue, socket_to_can_queue, imei, sim))
+    can_process = CanProcess(socket_to_can_queue, can_to_socket_queue,
+                             bitrate=can_bitrate, interface_name=can_interface_name,
+                             bustype=can_bustype)
+    socket_process = SocketProcess(can_to_socket_queue, socket_to_can_queue, imei, sim)
 
     can_process.start()
     socket_process.start()
