@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-from multiprocessing import Process, Queue
+from multiprocessing import Queue
 import logging
 from datetime import datetime
 from pathlib import Path
 from processes.canprocess import CanProcess
 from processes.socketprocess import SocketProcess
-from sim import Sim
+from interfaces.sim import Sim
 import os
 import configparser
 from picandb.settingsmanager import SettingsManager
@@ -24,9 +24,9 @@ def create_config(cfg: configparser.ConfigParser):
          'impianto_BK_Counter_SetCounter': '1080'}
 
     cfg['Soglie pressione'] = {
-        '# Default Pressione_Uscita_Max': '110. Bar massimi al di sopra dei quali le pompe '
+        '# Default Pressione_Uscita_Max': '160. Bar massimi al di sopra dei quali le pompe '
                                           'non partiranno in nessun caso',
-        'Pressione_Uscita_Max': '110',
+        'Pressione_Uscita_Max': '160',
         '# Default Pressione_Ingresso_Min': '0. Bar minimi al di sotto dei quali le pompe non partiranno.',
         'Pressione_Ingresso_Min': '0',
         '# Default Pressione_Ingresso_Max': '100. Bar massimi al di sopra dei quali le pompe non partiranno',
@@ -112,6 +112,13 @@ def main():
     settings.update_setting('AntisgoccNpartenze', anti_drip_start_count_limit)
     settings.update_setting('AntisgoccDurataPartenze', anti_drip_min_period)
 
+    can_to_socket_queue = Queue()
+    socket_to_can_queue = Queue()
+    can_process = CanProcess(socket_to_can_queue, can_to_socket_queue,
+                             bitrate=can_bitrate, interface_name=can_interface_name,
+                             bustype=can_bustype)
+    can_process.start()
+
     logger.info("Preparing GSM modem")
     sim = Sim()
     if sim.connected.is_set():
@@ -131,14 +138,7 @@ def main():
     settings.update_setting("IMEI_impianto_OK", 1)
     imei = new_imei
 
-    can_to_socket_queue = Queue()
-    socket_to_can_queue = Queue()
-    can_process = CanProcess(socket_to_can_queue, can_to_socket_queue,
-                             bitrate=can_bitrate, interface_name=can_interface_name,
-                             bustype=can_bustype)
     socket_process = SocketProcess(can_to_socket_queue, socket_to_can_queue, imei, sim)
-
-    can_process.start()
     socket_process.start()
 
     # Nothing else needs to be done

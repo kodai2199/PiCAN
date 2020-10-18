@@ -2,7 +2,7 @@ import logging
 from datetime import datetime
 from queue import Empty
 from multiprocessing import Process
-from processes.cannetwork import CanNetwork
+from interfaces.cannetwork import CanNetwork
 from picandb.settingsmanager import SettingsManager
 
 
@@ -28,7 +28,7 @@ class CanProcess(Process):
         self.min_inlet_pressure = None
         self.max_inlet_pressure = None
         self.anti_drip_time_limit = None
-        self.anti_drip = self.load_boolean("Antisgocc_OK", invert=True)
+        self.anti_drip = self.load_boolean("Antisgocc_OK")
         self.operator_pump_start = self.load_boolean("Operator_Pump_start")
         self.running = False
 
@@ -46,7 +46,7 @@ class CanProcess(Process):
              "outlet_pressure_target": self.settings.get_setting("Pressione_Uscita_Target"),
              "working_hours_counter": self.settings.get_setting("impianto_BK_Counter_hour"),
              "working_minutes_counter": self.settings.get_setting("impianto_BK_Counter_min"),
-             "anti_drip": not self.anti_drip,
+             "anti_drip": self.anti_drip,
              "alarms": str(self.can_network.get_faulty_nodes()),
              "tl_service": self.settings.get_setting("impianto_TL_SERVICE"),
              "bk_service": self.settings.get_setting("impianto_BK_SERVICE"),
@@ -62,10 +62,11 @@ class CanProcess(Process):
         self.min_inlet_pressure = int(self.settings.get_setting("Pressione_Ingresso_Min"))
         self.max_inlet_pressure = int(self.settings.get_setting("Pressione_Ingresso_Max"))
         self.anti_drip_time_limit = int(self.settings.get_setting("AntisgoccPeriodoControllo"))
-        self.anti_drip = self.load_boolean("Antisgocc_OK", invert=True)
+        self.anti_drip = self.load_boolean("Antisgocc_OK")
         self.operator_pump_start = self.load_boolean("Operator_Pump_start")
 
     def run(self):
+        self.logger.info("CANBus Interface Process started")
         # TODO at process start all settings should be loaded and
         # TODO communicated via CAN Bus
         last_started = None
@@ -74,10 +75,11 @@ class CanProcess(Process):
         self.initialize_settings()
         self.can_network = CanNetwork(bitrate=self.bitrate, bustype=self.bustype,
                                       interface_name=self.interface_name, autoconnect=True)
+        self.can_network.connect()
         self.can_network.initialize_nodes()
         while True:
             try:
-                command = self.read_queue.get(timeout=0.5)
+                command = self.read_queue.get(timeout=1)
                 result = "INVALID"
                 logging.info("Executing {}".format(command))
                 if command == "RUN":
@@ -106,6 +108,10 @@ class CanProcess(Process):
                 #    then increase the anti_drip_start_count. If last started is None
                 #    then it means that everything has already been calculated (or
                 #    it has yet to start)
+                if last_started is not None:
+                    print(f"seconds {(datetime.now() - last_started).total_seconds()}")
+                    print(f"min per {self.anti_drip_min_period}")
+                    print(f"count {anti_drip_start_count}")
                 if (last_started is not None and
                    (datetime.now() - last_started).total_seconds() >= self.anti_drip_min_period):
                     anti_drip_start_count += 1
@@ -136,12 +142,14 @@ class CanProcess(Process):
                            not self.anti_drip and self.operator_pump_start == 1):
                             # TODO Use inverter's PID
                             difference = self.target_pressure - outlet_pressure
-                            if difference > 0:
-                                # *30 to convert rpm in hertz
+                            if not self.running:
                                 self.can_network.run_all_nodes()
-                                self.can_network.set_speed_all_nodes(min(difference*30, 100))
                                 self.running = True
-                                last_started = datetime.now()
+                                if last_started is None:
+                                    last_started = datetime.now()
+                            if difference > 0:
+                                # *30 to convert rpm in hertz. 1500 is max rpm
+                                self.can_network.set_speed_all_nodes(min(difference * 30, 3000))
                             else:
                                 # Target pressure reached
                                 self.can_network.set_speed_all_nodes(0)

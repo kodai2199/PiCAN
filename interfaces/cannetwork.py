@@ -186,10 +186,8 @@ class CanNetwork:
     def read_inlet_temperature(self):
         return self.nodes_list[0].sdo[0x60FD].bits[16]
 
-    @staticmethod
-    def read_inlet_pressure():
-        # TODO read from an actual sensor if available.
-        return 10
+    def read_inlet_pressure(self):
+        return self.nodes_list[0].sdo[0x60FD].bits[15]
 
     # def read_inlet_pressure(self):
     # to be implemented if we get to test a pressure sensor

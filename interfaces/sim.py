@@ -135,7 +135,7 @@ class Sim:
             while self.connected.is_set():
                 time.sleep(0.1)
 
-    def get_imei(self, reboot_on_fail=False):
+    def get_imei(self, reboot_on_fail=False) -> str:
         """
         Returns the imei of the 2G/3G modem connected on the interface
         /dev/ttyUSB0
