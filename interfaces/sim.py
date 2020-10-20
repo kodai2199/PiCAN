@@ -9,12 +9,6 @@ import serial
 import logging
 import subprocess
 
-# APN to use for the connection
-APN = "ibox.tim.it"
-
-# Max number of tries before giving up to connect
-MAX_RETRIES = 5
-
 
 class Sim:
     """
@@ -42,7 +36,7 @@ class Sim:
      Further functionalities might be added in the future as needed.
     """
 
-    def __init__(self, autoconnect=False):
+    def __init__(self, autoconnect=False, apn='ibox.tim.it', max_retries=5):
         """
         The constructor checks that all the requirements are met
         and initializes class variables.
@@ -62,6 +56,8 @@ class Sim:
 
         self.logger = logging.getLogger(__name__)
         self.imei = None
+        self.apn = apn
+        self.max_retries = max_retries
         self.wants_connection = Event()
         self.connected = Event()
         self.connection_t = Thread(target=self.connection_thread)
@@ -162,7 +158,7 @@ class Sim:
             # Cannot provide an Imei if the modem is connected and no
             # imei was previously found
             self.logger.error("Cannot get the modem's IMEI while the user"
-                          " wants the modem connected unless previously found")
+                              " wants the modem connected unless previously found")
             raise BlockingIOError("Cannot get the modem's IMEI while the user"
                                   " wants the modem connected unless previously found")
         elif self.connected.is_set():
@@ -214,7 +210,7 @@ class Sim:
         :return: True if connected successfully, False otherwise
         """
         completed_process = subprocess.run(['sudo', 'sakis3g', 'connect', 'USBINTERFACE="0"',
-                                            'APN="{}"'.format(APN)], stdout=subprocess.DEVNULL,
+                                            'APN="{}"'.format(self.apn)], stdout=subprocess.DEVNULL,
                                            stderr=subprocess.DEVNULL)
         return_value = completed_process.returncode
         if return_value == 0:
@@ -259,12 +255,12 @@ class Sim:
                 if not self.__is_connected():
                     # Note that __is_connected already updates the connected Event
                     # Try to connect MAX_RETRIES times
-                    for i in range(1, MAX_RETRIES):
+                    for i in range(1, self.max_retries):
                         if self.__connect_command():
                             print("Connected successfully")
                             self.logger.info("Connected successfully")
                             break
-                        elif i == MAX_RETRIES:
+                        elif i == self.max_retries:
                             # TODO implement autoreboot
                             self.logger.error("Connection failed for an unknown reason.")
                             raise ConnectionError("Connection failed for an unknown reason.")
@@ -275,12 +271,12 @@ class Sim:
             # self.wants_connection has been cleared
             # Try to disconnect MAX_RETRIES times
             print("Thread disconnecting")
-            for i in range(1, MAX_RETRIES):
+            for i in range(1, self.max_retries):
                 if self.__disconnect_command():
                     print("Disconnected successfully")
                     self.logger.info("Disconnected successfully")
                     break
-                elif i == MAX_RETRIES:
+                elif i == self.max_retries:
                     # TODO implement autoreboot
                     self.logger.error("Disconnection failed for an unknown reason.")
                     raise ConnectionError("Disconnection failed for an unknown reason.")

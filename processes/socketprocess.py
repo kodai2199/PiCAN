@@ -8,9 +8,6 @@ from interfaces.sim import Sim
 from picandb.settingsmanager import SettingsManager
 from processes.timeprocess import time_updater
 
-SERVER_ADDRESS = "ggh.zapto.org"
-PORT = 37863
-
 
 class SocketProcess(Process):
     """
@@ -34,7 +31,7 @@ class SocketProcess(Process):
     have to be passed, however, as seen in the __init__ method.
     """
 
-    def __init__(self, read_queue: Queue, write_queue: Queue, imei: str, sim: Sim,
+    def __init__(self, read_queue: Queue, write_queue: Queue, imei: str, sim=None,
                  server_address='ggh.zapto.org', port=37863, database_path='piCANclient.db'):
         """
         This constructor just initializes the variables needed by the
@@ -213,8 +210,10 @@ class SocketProcess(Process):
                 break
             except ConnectionError or ConnectionResetError:
                 self.logger.error("The connection has been closed unexpectedly. Trying to reconnect...")
-                self.sim.disconnect(blocking=True)
-                self.sim.connect(blocking=True)
+                if self.sim is not None:
+                    self.sim.disconnect(blocking=True)
+                    self.sim.connect(blocking=True)
+                time.sleep(1)
                 # Call a method that pings google, if not works tries to disconnect and
                 # then reconnect with the modem. If ping works, then it must be server's fault
                 # But what should we do, even if so? We could only wait and retry...

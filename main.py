@@ -13,10 +13,21 @@ from picandb.settingsmanager import SettingsManager
 
 def create_config(cfg: configparser.ConfigParser):
     # Create config file programmatically
-    # TODO load/create can bus, sim and other missing settings like port and address, apn, ...
-    cfg['Dati impianto'] = {'Codice_Impianto': 'default'}
-    cfg['Limiti temporali'] = \
-        {'# Default impianto_TL_Counter_SetCounter': '4. Limite di ore giornaliere prima del blocco dei contatori TL',
+    cfg['Dati impianto'] = {
+        'codice_impianto': 'default',
+        'indirizzo_server': 'ggh.zapto.org',
+        'porta_server': '37863'}
+    cfg['Impostazioni chiavetta'] = {
+        '# Default usa_chiavetta': 'True. Scrivere False (con la maiuscola!) per usare il Wi-Fi',
+        'usa_chiavetta': 'True',
+        '# Default APN': "ibox.tim.it. Inserire l'APN da usare per la connessione tramite chiavetta",
+        'APN': 'ibox.tim.it',
+        '# Default tentativi_max': '5. Inserire il numero massimo di tentativi di connessione con la chiavetta prima di'
+                                   'terminare il programma',
+        'tentativi_max': '5'
+    }
+    cfg['Limiti temporali'] = {
+        '# Default impianto_TL_Counter_SetCounter': '4. Limite di ore giornaliere prima del blocco dei contatori TL',
          'impianto_TL_Counter_SetCounter': '4',
          '# Default impianto_RB_Counter_SetCounter': '720. Limite di ore totali prima del blocco dei contatori RB',
          'impianto_RB_Counter_SetCounter': '720',
@@ -64,11 +75,7 @@ def main():
     # commands received from the socket. It will read from
     # can_to_socket_queue the results and the information and
     # send them to the server via the socket
-    # TODO: test CAN functionality (special equipment needed!)
-    # TODO: implement backup database functionality
     # WARNING: database exceptions are not catched, as there should be none!
-
-    # Prepare the logger
     now = datetime.now()
     directory = Path("logs/")
     filename = now.strftime("%Y-%m-%d_%H-%M-%S")
@@ -88,7 +95,16 @@ def main():
     if not os.path.exists('settings.cfg'):
         create_config(c)
     c.read('settings.cfg')
-    installation_code = c['Dati impianto']['Codice_Impianto']
+    installation_code = c['Dati impianto']['codice_impianto']
+    server_address = c['Dati impianto']['indirizzo_server']
+    port = c['Dati impianto']['porta_server']
+    use_modem = c['Impostazioni chiavetta']['usa_chiavetta']
+    if use_modem == 'True':
+        use_modem = True
+    else:
+        use_modem = False
+    apn = c['Impostazioni chiavetta']['APN']
+    max_retries = int(c['Impostazioni chiavetta']['tentativi_max'])
     tl_limit = c['Limiti temporali']['impianto_TL_Counter_SetCounter']
     rb_limit = c['Limiti temporali']['impianto_RB_Counter_SetCounter']
     bk_limit = c['Limiti temporali']['impianto_BK_Counter_SetCounter']
@@ -119,26 +135,31 @@ def main():
                              bustype=can_bustype)
     can_process.start()
 
-    logger.info("Preparing GSM modem")
-    sim = Sim()
-    if sim.connected.is_set():
-        sim.disconnect()
-    new_imei = sim.get_imei()
-    sim.connect()
+    if use_modem:
+        logger.info("Preparing GSM modem")
+        sim = Sim(apn=apn, max_retries=max_retries)
+        if sim.connected.is_set():
+            sim.disconnect()
+        new_imei = sim.get_imei()
+        sim.connect()
 
-    # If the old imei is the default, then replace it.
-    # If the old imei is not the default and the new is different,
-    # the modem has been replaced, so an exception is raised
-    if old_imei == settings.DEFAULT_IMEI:
-        settings.update_setting("IMEI_impianto", new_imei)
-    elif new_imei != old_imei:
-        settings.update_setting("IMEI_impianto_OK", 0)
-        logger.error("Modem IMEI has changed unexpectedly. Reset the database or plug in the old modem")
-        raise IOError("Modem IMEI has changed unexpectedly. Reset the database or plug in the old modem")
-    settings.update_setting("IMEI_impianto_OK", 1)
-    imei = new_imei
+        # If the old imei is the default, then replace it.
+        # If the old imei is not the default and the new is different,
+        # the modem has been replaced, so an exception is raised
+        if old_imei == settings.DEFAULT_IMEI:
+            settings.update_setting("IMEI_impianto", new_imei)
+        elif new_imei != old_imei:
+            settings.update_setting("IMEI_impianto_OK", 0)
+            logger.error("Modem IMEI has changed unexpectedly. Reset the database or plug in the old modem")
+            raise IOError("Modem IMEI has changed unexpectedly. Reset the database or plug in the old modem")
+        settings.update_setting("IMEI_impianto_OK", 1)
+        imei = new_imei
+    else:
+        sim = None
+        imei = '111222333444555'
 
-    socket_process = SocketProcess(can_to_socket_queue, socket_to_can_queue, imei, sim)
+    socket_process = SocketProcess(can_to_socket_queue, socket_to_can_queue,
+                                   imei, sim=sim, server_address=server_address, port=port)
     socket_process.start()
 
     # Nothing else needs to be done
