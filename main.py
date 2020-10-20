@@ -97,7 +97,7 @@ def main():
     c.read('settings.cfg')
     installation_code = c['Dati impianto']['codice_impianto']
     server_address = c['Dati impianto']['indirizzo_server']
-    port = c['Dati impianto']['porta_server']
+    port = int(c['Dati impianto']['porta_server'])
     use_modem = c['Impostazioni chiavetta']['usa_chiavetta']
     if use_modem == 'True':
         use_modem = True
