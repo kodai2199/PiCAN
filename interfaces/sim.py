@@ -23,20 +23,24 @@ class Sim:
      - Verify the connection state (registered, connected...)
      - Change the connection state (connecting, disconnecting)
      - Get the Modem IMEI number
-    Class variables are:
-     - self.wants_connection: event that is fired when the user calls
-        connect and cleared when the user calls disconnect
-     - self.connected: event that is fired when the modem is connected
-        and cleared when it disconnects
-     - self.connection_t: the thread that takes care of all the
-        asynchronous interactions with the modem
-     - self.imei: the imei of the modem
 
-
-     Further functionalities might be added in the future as needed.
+    Since several methods are blocking and will take a significant
+    amount of time to be completed, all the commands involving
+    communication with the 2G/3G modem are done in a separate thread.
+    As a result, all callable command can be specified to be both
+    blocking or not blocking. The thread starts as soon as possible.
+    Communication between the thread and the method is done through
+    two events:
+     - self.wants_connection: if this event is fired, the thread will
+        immediately try to connect. While it's cleared, the thread
+        will try to disconnect. This event is respectively fired and
+        cleared by the connect() and the disconnect() methods.
+     - self.__connected: this event is fired only if a connection is
+        successfully established, and cleared if successfully
+        disconnected. The user should never modify this directly.
     """
 
-    def __init__(self, autoconnect=False, apn='ibox.tim.it', max_retries=5):
+    def __init__(self, autoconnect=False, apn='ibox.tim.it', max_retries=5, interface='/dev/ttyUSB0'):
         """
         The constructor checks that all the requirements are met
         and initializes class variables.
@@ -46,12 +50,18 @@ class Sim:
         - ppp must be installed
         - wvdial must be installed
         - screen must be installed
-        - sakis3g must be installed (whom files are shipped with this software)
+        - sakis3g must be installed (whose files are shipped with this
+          software)
 
         It also tests if the modem was already connected at the time
         of execution, and if it was, then adjusts the variables.
         :param autoconnect: If True the constructor will call the
                 connect method in a non-blocking fashion.
+        :param: apn: the APN to use for the connection.
+        :param max_retries: the maximum number of times the connection
+            thread will try to execute a command before giving up.
+        :param interface: the interface to use for serial
+            communication with the modem.
         """
 
         self.logger = logging.getLogger(__name__)
@@ -59,9 +69,10 @@ class Sim:
         self.apn = apn
         self.max_retries = max_retries
         self.wants_connection = Event()
-        self.connected = Event()
+        self.__connected = Event()
         self.connection_t = Thread(target=self.connection_thread)
         self.connection_t.daemon = True
+        self.interface = interface
 
         if platform != "linux":
             self.logger.error("This software is designed to run on a Raspberry Pi or a linux system with a 3G modem"
@@ -87,13 +98,10 @@ class Sim:
                 if len(output) > 0:
                     self.logger.info("{} is installed and working.".format(package))
                 else:
-                    # TODO auto install sakis3g or display instructions
                     self.logger.error("Could not find package {0} in the system path. Please install {0} before"
                                       "running this software.".format(package))
                     raise FileNotFoundError("Could not find package {0} in the system path. Please install {0} before"
                                             "running this software.".format(package))
-
-        # Start the thread only if all requirements are met
         self.connection_t.start()
 
         if self.__is_connected():
@@ -102,7 +110,10 @@ class Sim:
         if autoconnect:
             self.connect(blocking=False)
 
-    def connect(self, blocking=True):
+    def is_connected(self):
+        return self.__connected
+
+    def connect(self, blocking=True) -> None:
         """
         Connect to the Internet using the 2G/3G modem.
 
@@ -110,13 +121,13 @@ class Sim:
                          modem is actually connected. If false, the
                          connection process will start but the
                          function will return immediately.
-        :return:
+        :return: None
         """
         self.wants_connection.set()
         if blocking:
-            self.connected.wait()
+            self.__connected.wait()
 
-    def disconnect(self, blocking=True):
+    def disconnect(self, blocking=True) -> None:
         """
         Disconnects the 2G/3G modem from the Internet.
 
@@ -124,11 +135,11 @@ class Sim:
                          modem is actually disconnected. If false, the
                          disconnection process will start but the
                          function will return immediately.
-        :return:
+        :return: None
         """
         self.wants_connection.clear()
         if blocking:
-            while self.connected.is_set():
+            while self.__connected.is_set():
                 time.sleep(0.1)
 
     def get_imei(self, reboot_on_fail=False) -> str:
@@ -161,11 +172,10 @@ class Sim:
                               " wants the modem connected unless previously found")
             raise BlockingIOError("Cannot get the modem's IMEI while the user"
                                   " wants the modem connected unless previously found")
-        elif self.connected.is_set():
+        elif self.__connected.is_set():
             self.disconnect()
 
-        with serial.Serial('/dev/ttyUSB0', 115200, timeout=1) as modem:
-            # Send
+        with serial.Serial(self.interface, 115200, timeout=1) as modem:
             modem.write("AT+GSN\r".encode())
             time.sleep(0.005)
             modem.readline().decode()
@@ -178,7 +188,7 @@ class Sim:
                 raise IOError("Could not get the IMEI.")
             return self.imei
 
-    def __disconnect_command(self):
+    def __disconnect_command(self) -> bool:
         """
         Disconnects the 2G/3G modem using the sakis3g script
         WARNING: This is blocking and may take several seconds.
@@ -193,13 +203,13 @@ class Sim:
                                            stderr=subprocess.DEVNULL)
         return_value = completed_process.returncode
         if return_value == 0:
-            self.connected.clear()
+            self.__connected.clear()
             return True
         else:
-            self.connected.set()
+            self.__connected.set()
             return False
 
-    def __connect_command(self):
+    def __connect_command(self) -> bool:
         """
         Connects with the 2G/3G modem using the sakis 3g script.
         WARNING: This is blocking and may take several seconds.
@@ -214,13 +224,13 @@ class Sim:
                                            stderr=subprocess.DEVNULL)
         return_value = completed_process.returncode
         if return_value == 0:
-            self.connected.set()
+            self.__connected.set()
             return True
         else:
-            self.connected.clear()
+            self.__connected.clear()
             return False
 
-    def __is_connected(self):
+    def __is_connected(self) -> bool:
         """
         Gets the connection state using the sakis3g script.
         WARNING: This is blocking and may take several seconds.
@@ -236,20 +246,25 @@ class Sim:
                                            stderr=subprocess.DEVNULL)
         return_value = completed_process.returncode
         if return_value == 0:
-            self.connected.set()
+            self.__connected.set()
             return True
         else:
-            self.connected.clear()
+            self.__connected.clear()
             return False
 
-    def connection_thread(self):
+    def connection_thread(self) -> None:
+        """
+        The heart of this class, meant to be used as a separate
+        thread to minimize the impact of blocking commands that have
+        to do with the 2G/3G modem. This executes constantly.
+
+        :return: None
+        """
         # while user wants connection, assures that everything works
         # can be stopped via wants_connection
-        print("Thread started")
-        self.logger.info("Modem connection thread started")
+        self.logger.info("Modem control thread started")
         while True:
             self.wants_connection.wait()
-            print("Connection request received")
             self.logger.info("Connection request received")
             while self.wants_connection.is_set():
                 if not self.__is_connected():
@@ -257,7 +272,6 @@ class Sim:
                     # Try to connect MAX_RETRIES times
                     for i in range(1, self.max_retries):
                         if self.__connect_command():
-                            print("Connected successfully")
                             self.logger.info("Connected successfully")
                             break
                         elif i == self.max_retries:
@@ -265,15 +279,12 @@ class Sim:
                             self.logger.error("Connection failed for an unknown reason.")
                             raise ConnectionError("Connection failed for an unknown reason.")
                 time.sleep(1)
-                # Monitor connection once every second
 
             # If the excecution reached this point, it means that
             # self.wants_connection has been cleared
             # Try to disconnect MAX_RETRIES times
-            print("Thread disconnecting")
             for i in range(1, self.max_retries):
                 if self.__disconnect_command():
-                    print("Disconnected successfully")
                     self.logger.info("Disconnected successfully")
                     break
                 elif i == self.max_retries:

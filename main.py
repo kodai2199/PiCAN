@@ -138,7 +138,7 @@ def main():
     if use_modem:
         logger.info("Preparing GSM modem")
         sim = Sim(apn=apn, max_retries=max_retries)
-        if sim.connected.is_set():
+        if sim.is_connected():
             sim.disconnect()
         new_imei = sim.get_imei()
         sim.connect()

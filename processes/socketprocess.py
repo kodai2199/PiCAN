@@ -175,7 +175,7 @@ class SocketProcess(Process):
         while True:
             try:
                 return self.receive(timeout, buffer_size)
-            except ConnectionAbortedError:
+            except ConnectionAbortedError or OSError:
                 self.create_socket()
                 self.connect_to_server()
 
@@ -208,21 +208,25 @@ class SocketProcess(Process):
                 self.socket.connect((self.server_address, self.port))
                 self.identify()
                 break
-            except ConnectionError or ConnectionResetError:
+            except ConnectionError or ConnectionResetError or OSError:
                 self.logger.error("The connection has been closed unexpectedly. Trying to reconnect...")
                 if self.sim is not None:
                     self.sim.disconnect(blocking=True)
                     self.sim.connect(blocking=True)
-                time.sleep(1)
+                else:
+                    time.sleep(1)
                 # Call a method that pings google, if not works tries to disconnect and
                 # then reconnect with the modem. If ping works, then it must be server's fault
                 # But what should we do, even if so? We could only wait and retry...
 
     def reset_time_limit(self, limit_name: str) -> None:
         """
+        Resets all time variables related to the index provided as a
+        parameter.
 
-        :param limit_name: a
-        :return:
+        :param limit_name: the name of the time limit index. It can be
+            either TL, BK or RB.
+        :return: None
         """
         self.time_updater_reset = 1
         self.settings.update_setting(f"impianto_{limit_name}_Counter_hour", 0)
@@ -250,9 +254,9 @@ class SocketProcess(Process):
     def run(self) -> None:
         """
         This function is meant to be run as a concurrent process, like the
-        can_interface_process. It connects with the webserver and handles
+        CAN Process. It connects with the webserver and handles
         the connection. It receives commands from the webserver, executes
-        via the can_interface_process and replies to them.
+        via the CAN Process and replies to them.
 
         Implemented commands:
             - "GET_INFO"
@@ -263,8 +267,21 @@ class SocketProcess(Process):
               The command is sent to the can_interface, executed and then
               an "OK" is sent to the server.
             - "STOP"
-              The command is sent to the can_interface, executed and then
-              an "OK" is sent to the server.
+              The command is sent to the can_interface, executed and
+              then an "OK" is sent to the server.
+            - "RESET_TL"
+                The time updater process is paused and the relevant
+                counters are reset
+            - "RESET_BK"
+                The time updater process is paused and the relevant
+                counters are reset
+            - "RESET_RB"
+                The time updater process is paused and the relevant
+                counters are reset
+            - "SET_PRESSURE_TARGET: number"
+                The pressure_target setting is updated and the
+                CAN process is prompted to update to the new pressure
+                target
 
         :return: None
         """
@@ -273,9 +290,6 @@ class SocketProcess(Process):
         self.time_updater_process.daemon = True
         self.time_updater_process.start()
         last_row = {}
-        # NOTE: The server will only send a command at a time.
-        # NOTE: The server will wait for up to five seconds to execute the
-        #       command.
         while True:
             self.create_socket()
             self.connect_to_server()
