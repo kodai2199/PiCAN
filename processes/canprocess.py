@@ -135,7 +135,7 @@ class CanProcess(Process):
                 outlet_pressure = self.can_network.read_outlet_pressure()/10
                 inlet_pressure = self.can_network.read_inlet_pressure()
 
-                if self.min_inlet_pressure < inlet_pressure < self.max_inlet_pressure:
+                if inlet_pressure == 1:
                     self.settings.update_setting("Pressione_Ingresso_OK", 1)
                     if tl_service == 0 and bk_service == 0 and rb_service == 0:
                         if (outlet_pressure < self.target_pressure and
