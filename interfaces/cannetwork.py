@@ -209,6 +209,18 @@ class CanNetwork:
         else:
             return self.SWITCH_ON_DISABLED
 
+    def print_all_states(self):
+        for node in self.nodes_list:
+            state = self.get_state(node)
+            if state == self.SWITCH_ON_DISABLED:
+                print('switch on disabled')
+            elif state == self.FAULT:
+                print('fault')
+            elif state == self.OPERATION_ENABLED:
+                print('op enabled')
+            elif state == self.SWITCHED_ON:
+                print('Switched on')
+
     def run_all_nodes(self):
         self.set_network_state(self.SWITCH_ON_DISABLED)
         time.sleep(0.2)
