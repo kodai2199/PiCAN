@@ -210,6 +210,7 @@ class CanNetwork:
             return self.SWITCH_ON_DISABLED
 
     def run_all_nodes(self):
+        self.set_network_state(self.SWITCHED_ON)
         self.set_network_state(self.OPERATION_ENABLED)
 
     def stop_all_nodes(self):
