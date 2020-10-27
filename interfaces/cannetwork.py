@@ -146,7 +146,13 @@ class CanNetwork:
                 new_node.tpdo.read()
                 new_node.rpdo[1].enable = True
                 new_node.rpdo[1].start(0.05)
+                new_node.rpdo[1]['CiA: Controlword'].bits[0] = 1
+                new_node.rpdo[1]['CiA: Controlword'].bits[1] = 1
+                new_node.rpdo[1]['CiA: Controlword'].bits[3] = 1
                 new_node.nmt.state = 'OPERATIONAL'
+                new_node.rpdo[1]['CiA: Controlword'].bits[0] = 1
+                new_node.rpdo[1]['CiA: Controlword'].bits[1] = 1
+                new_node.rpdo[1]['CiA: Controlword'].bits[3] = 1
                 time.sleep(0.2)
                 self.reset_faulty_node(new_node)
                 new_node.rpdo[1]['CiA: Controlword'].raw = self.SWITCH_ON_DISABLED
