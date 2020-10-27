@@ -168,11 +168,9 @@ class CanNetwork:
         self.set_network_state(self.SWITCHED_ON)
 
     def set_network_state(self, state):
-        # Ignored fault
         if self.state != state:
             for node in self.nodes_list:
-                if not self.is_faulty(node):
-                    node.rpdo[1]['CiA: Controlword'].raw = state
+                node.rpdo[1]['CiA: Controlword'].raw = state
             self.state = state
 
     def get_faulty_nodes(self):
