@@ -84,6 +84,7 @@ class CanProcess(Process):
                 logging.info("Executing {}".format(command))
                 if command == "RUN":
                     self.operator_pump_start = True
+                    self.can_network.reset_faulty_nodes()
                     self.settings.update_setting("Operator_Pump_start", 1)
                     result = "OK"
                 elif command == "STOP":

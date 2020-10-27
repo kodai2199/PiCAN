@@ -19,6 +19,10 @@ class CanNetwork:
     the initialization of the nodes and 
 
     """
+    FAULT = 0
+    SWITCH_ON_DISABLED = 0x80
+    SWITCHED_ON = 0x07
+    OPERATION_ENABLED = 0x0F
 
     def __init__(self, interface_name="can0", bitrate=500000, bustype='socketcan', autoconnect=False):
         self.logger = logging.getLogger(__name__)
@@ -30,7 +34,7 @@ class CanNetwork:
         self.connected = False
         self.network = None
         self.speed = 0
-        self.state = "UNDEFINED"
+        self.state = None
         self.nodes_list = []
         # Check dependencies
         # TODO install canopen from github pip install https://github.com/christiansandberg/canopen/archive/master.zip
@@ -136,7 +140,16 @@ class CanNetwork:
             for node_id in self.network.scanner.nodes:
                 new_node = BaseNode402(node_id, 'LOVATO_VLB3.eds')
                 self.network.add_node(new_node)
-                new_node.setup_402_state_machine()
+                new_node.nmt.state = "PRE-OPERATIONAL"
+                time.sleep(0.2)
+                new_node.rpdo.read()
+                new_node.tpdo.read()
+                new_node.rpdo[1].enable = True
+                new_node.rpdo[1].start(0.05)
+                new_node.nmt.state = 'OPERATIONAL'
+                time.sleep(0.2)
+                self.reset_faulty_node(new_node)
+                new_node.rpdo[1]['CiA: Controlword'].raw = self.SWITCH_ON_DISABLED
                 self.nodes_list.append(new_node)
             if len(self.nodes_list) > 0:
                 self.logger.info(f"Node number {self.nodes_list[0].id} identified")
@@ -151,33 +164,60 @@ class CanNetwork:
                                " meaning that communication is impossible. Please setup a node before"
                                " trying to connect again")
         # Wait before setting all to ready
-        time.sleep(1)
-        self.set_network_state("SWITCHED ON")
+        time.sleep(0.5)
+        self.set_network_state(self.SWITCHED_ON)
 
     def set_network_state(self, state):
         # Ignored fault
         if self.state != state:
             for node in self.nodes_list:
-                if node.state != "FAULT":
-                    node.state = state
+                if not self.is_faulty(node):
+                    node.rpdo[1]['CiA: Controlword'].raw = state
             self.state = state
 
     def get_faulty_nodes(self):
         faulty = []
         for node in self.nodes_list:
-            if node.state == "FAULT":
+            if self.is_faulty(node):
                 faulty.append(node.id)
         return faulty
 
+    def is_faulty(self, node: BaseNode402) -> bool:
+        if node.tpdo[1]['CiA: Statusword'].bits[3]:
+            return True
+        else:
+            return False
+
+    def reset_faulty_node(self, node: BaseNode402) -> None:
+        if self.is_faulty(node):
+            node.rpdo[1]['CiA: Controlword'].bits[7] = 1
+            time.sleep(0.1)
+            node.rpdo[1]['CiA: Controlword'].bits[7] = 0
+            time.sleep(0.1)
+
+    def reset_faulty_nodes(self):
+        for node in self.nodes_list:
+            self.reset_faulty_node(node)
+
+    def get_state(self, node: BaseNode402) -> int:
+        if self.is_faulty(node):
+            return self.FAULT
+        elif node.tpdo[1]['CiA: Statusword'].bits[2]:
+            return self.OPERATION_ENABLED
+        elif node.tpdo[1]['CiA: Statusword'].bits[1]:
+            return self.SWITCHED_ON
+        else:
+            return self.SWITCH_ON_DISABLED
+
     def run_all_nodes(self):
-        self.set_network_state("OPERATION ENABLED")
+        self.set_network_state(self.OPERATION_ENABLED)
 
     def stop_all_nodes(self):
-        self.set_network_state("SWITCHED ON")
+        self.set_network_state(self.SWITCHED_ON)
 
     def set_speed_all_nodes(self, rpm):
         for node in self.nodes_list:
-            node.sdo[0x6046][1].phys = rpm
+            node.sdo[0x6042].phys = rpm
         self.speed = rpm
 
     def read_outlet_pressure(self):
